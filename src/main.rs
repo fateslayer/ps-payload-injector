@@ -7,11 +7,39 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
 
-    eframe::run_simple_native(app_name, options, update_fun)
+    eframe::run_native(app_name, options, Box::new(|_cc| Ok(Box::<App>::default())))
 }
 
-fn update_fun(ctx: &egui::Context, _frame: &mut eframe::Frame) {
-    egui::CentralPanel::default().show(ctx, |ui| {
-        ui.heading("Hello World");
-    });
+struct App {
+    ip: String,
+    port: String,
+}
+
+impl Default for App {
+    fn default() -> Self {
+        Self {
+            ip: "192.168.1.2".to_owned(),
+            port: "9025".to_owned(),
+        }
+    }
+}
+
+impl eframe::App for App {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label("IP:");
+                    ui.text_edit_singleline(&mut self.ip);
+                });
+
+                ui.add_space(20.0);
+
+                ui.horizontal(|ui| {
+                    ui.label("Port:");
+                    ui.text_edit_singleline(&mut self.port);
+                });
+            });
+        });
+    }
 }
