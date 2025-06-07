@@ -4,6 +4,9 @@ fn main() -> eframe::Result {
     let app_name = "NetCat Payload Injector";
 
     let options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([640.0, 240.0])
+            .with_resizable(false),
         ..Default::default()
     };
 
@@ -52,7 +55,9 @@ impl eframe::App for App {
                 ui.add_space(20.0);
 
                 if ui.button("Open file..").clicked() {
-                    println!("Opening file..");
+                    if let Some(path) = rfd::FileDialog::new().pick_file() {
+                        self.file_path = path.display().to_string();
+                    }
                 }
             })
         });
