@@ -13,6 +13,7 @@ fn main() -> eframe::Result {
 struct App {
     ip: String,
     port: String,
+    file_path: String,
 }
 
 impl Default for App {
@@ -20,6 +21,7 @@ impl Default for App {
         Self {
             ip: "192.168.1.2".to_owned(),
             port: "9025".to_owned(),
+            file_path: "".to_owned(),
         }
     }
 }
@@ -40,6 +42,19 @@ impl eframe::App for App {
                     ui.text_edit_singleline(&mut self.port);
                 });
             });
+
+            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Path:");
+                    ui.text_edit_singleline(&mut self.file_path);
+                });
+
+                ui.add_space(20.0);
+
+                if ui.button("Open file..").clicked() {
+                    println!("Opening file..");
+                }
+            })
         });
     }
 }
