@@ -6,7 +6,7 @@ use std::path::Path;
 use std::time::Duration;
 
 fn main() -> eframe::Result {
-    let app_name = "Payload Injector";
+    let app_name = "PS Payload Injector";
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
