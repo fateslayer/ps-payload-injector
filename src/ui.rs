@@ -1,37 +1,56 @@
 use eframe::egui;
 use std::path::Path;
+use std::sync::mpsc;
+
+#[derive(Debug)]
+pub enum InjectionStatus {
+    Idle,
+    InProgress(String),
+    Success(usize),
+    Error(String),
+}
 
 pub struct App<F>
 where
-    F: Fn(&str, &str, &str) -> Result<usize, String>,
+    F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     ip: String,
     port: String,
     file_path: String,
-    status: String,
+    status: InjectionStatus,
     inject_fn: F,
+    receiver: Option<mpsc::Receiver<InjectionStatus>>,
 }
 
 impl<F> App<F>
 where
-    F: Fn(&str, &str, &str) -> Result<usize, String>,
+    F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     pub fn new(inject_fn: F) -> Self {
         Self {
             ip: "192.168.1.2".to_owned(),
             port: "9025".to_owned(),
             file_path: "".to_owned(),
-            status: "Idle".to_owned(),
+            status: InjectionStatus::Idle,
             inject_fn,
+            receiver: None,
         }
     }
 }
 
 impl<F> eframe::App for App<F>
 where
-    F: Fn(&str, &str, &str) -> Result<usize, String>,
+    F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Check for status updates from the async task
+        if let Some(receiver) = &self.receiver {
+            if let Ok(new_status) = receiver.try_recv() {
+                self.status = new_status;
+                ctx.request_repaint(); // Request UI update
+            }
+        }
+
         // Increase font sizes for all text elements and add padding
         ctx.style_mut(|style| {
             style
@@ -111,8 +130,14 @@ where
                     ui.end_row();
 
                     ui.add_sized([80.0, 20.0], egui::Label::new("")); // Empty first column
-                    let inject_button =
-                        ui.add_enabled(self.is_input_valid(), egui::Button::new("Inject Payload"));
+                    let inject_button = ui.add_enabled(
+                        self.is_input_valid()
+                            && !matches!(self.status, InjectionStatus::InProgress(_)),
+                        egui::Button::new(match &self.status {
+                            InjectionStatus::InProgress(_) => "Injecting...",
+                            _ => "Inject Payload",
+                        }),
+                    );
 
                     if inject_button.clicked() {
                         self.inject_payload();
@@ -130,7 +155,7 @@ where
                     ui.add_sized([80.0, 20.0], egui::Label::new("Status:"));
                     ui.add(
                         egui::Label::new(
-                            egui::RichText::new(&self.status).color(self.status_color()),
+                            egui::RichText::new(&self.status_text()).color(self.status_color()),
                         )
                         .wrap(),
                     );
@@ -142,7 +167,7 @@ where
 
 impl<F> App<F>
 where
-    F: Fn(&str, &str, &str) -> Result<usize, String>,
+    F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     fn is_input_valid(&self) -> bool {
         // Check if IP address is not empty and not just whitespace
@@ -163,56 +188,63 @@ where
         true
     }
 
+    fn status_text(&self) -> String {
+        match &self.status {
+            InjectionStatus::Idle => "Idle".to_string(),
+            InjectionStatus::InProgress(msg) => msg.clone(),
+            InjectionStatus::Success(bytes) => format!("Success! Sent {} bytes", bytes),
+            InjectionStatus::Error(msg) => format!("Error: {}", msg),
+        }
+    }
+
     fn status_color(&self) -> egui::Color32 {
-        if self.status.starts_with("Error") {
-            egui::Color32::from_rgb(220, 80, 80)
-        } else if self.status.starts_with("Success") {
-            egui::Color32::from_rgb(80, 180, 80)
-        } else {
-            egui::Color32::from_rgb(120, 120, 120)
+        match &self.status {
+            InjectionStatus::Error(_) => egui::Color32::from_rgb(220, 80, 80),
+            InjectionStatus::Success(_) => egui::Color32::from_rgb(80, 180, 80),
+            InjectionStatus::InProgress(_) => egui::Color32::from_rgb(255, 165, 0), // Orange
+            InjectionStatus::Idle => egui::Color32::from_rgb(120, 120, 120),
         }
     }
 
     fn inject_payload(&mut self) {
-        self.status = "Injecting payload...".to_string();
+        self.status = InjectionStatus::InProgress("Preparing injection...".to_string());
 
         if self.file_path.is_empty() {
-            self.status = "Error: No file selected".to_string();
+            self.status = InjectionStatus::Error("No file selected".to_string());
             return;
         }
 
         if !Path::new(&self.file_path).exists() {
-            self.status = format!("Error: File does not exist: {}", self.file_path);
+            self.status =
+                InjectionStatus::Error(format!("File does not exist: {}", self.file_path));
             return;
         }
 
         if self.ip.is_empty() {
-            self.status = "Error: IP address is required".to_string();
+            self.status = InjectionStatus::Error("IP address is required".to_string());
             return;
         }
 
         if self.port.is_empty() {
-            self.status = "Error: Port is required".to_string();
+            self.status = InjectionStatus::Error("Port is required".to_string());
             return;
         }
 
         if self.port.parse::<u16>().is_err() {
-            self.status = format!("Error: Invalid port number: {}", self.port);
+            self.status = InjectionStatus::Error(format!("Invalid port number: {}", self.port));
             return;
         }
 
-        self.status = format!(
-            "Sending file '{}' to {}:{}",
-            self.file_path, self.ip, self.port
-        );
+        // Create a channel for communication
+        let (sender, receiver) = mpsc::channel();
+        self.receiver = Some(receiver);
 
-        match (self.inject_fn)(&self.ip, &self.port, &self.file_path) {
-            Ok(bytes_sent) => {
-                self.status = format!("Success! Sent {} bytes", bytes_sent);
-            }
-            Err(e) => {
-                self.status = format!("Error: {}", e);
-            }
-        }
+        // Clone the necessary data for the async task
+        let ip = self.ip.clone();
+        let port = self.port.clone();
+        let file_path = self.file_path.clone();
+
+        // Call the injection function with the sender
+        (self.inject_fn)(&ip, &port, &file_path, sender);
     }
 }
