@@ -3,8 +3,8 @@ use crate::network::FileTransfer;
 use crate::ui::InjectionStatus;
 use std::sync::mpsc;
 
-pub fn create_inject_fn()
--> impl Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static {
+pub fn create_inject_fn(
+) -> impl Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static {
     |ip: &str, port: &str, file_path: &str, sender: mpsc::Sender<InjectionStatus>| {
         let ip = ip.to_string();
         let port = port.to_string();
@@ -71,8 +71,8 @@ pub fn create_inject_fn()
     }
 }
 
-pub fn create_save_config_fn()
--> impl Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static {
+pub fn create_save_config_fn(
+) -> impl Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static {
     |ip: &str, port: &str, file_path: &str, sender: mpsc::Sender<InjectionStatus>| {
         let ip = ip.to_string();
         let port = port.to_string();
@@ -186,5 +186,138 @@ pub fn create_load_config_fn() -> impl Fn(mpsc::Sender<InjectionStatus>) + Send 
                 ));
             }
         });
+    }
+}
+
+pub fn create_auto_save_fn() -> impl Fn(&str, &str, &str) + Send + 'static {
+    |ip: &str, port: &str, file_path: &str| {
+        // Create config from current values and save it silently
+        let config = Config::new(ip.to_string(), port.to_string(), file_path.to_string());
+        let _ = config.auto_save(); // Silent save - ignore errors for auto-save
+    }
+}
+
+pub fn load_startup_config() -> (String, String, String) {
+    let config = Config::load_or_default();
+    (config.ip, config.port, config.file_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_handler_functions_creation() {
+        // Test that all handler functions can be created without panicking
+        let _inject_fn = create_inject_fn();
+        let _save_config_fn = create_save_config_fn();
+        let _load_config_fn = create_load_config_fn();
+        let _auto_save_fn = create_auto_save_fn();
+
+        // Test startup config loading (this will create or load existing config)
+        let startup_config = load_startup_config();
+        assert!(startup_config.0.len() > 0); // IP should not be empty
+        assert!(startup_config.1.len() > 0); // Port should not be empty
+                                             // File path can be empty in defaults
+    }
+
+    #[test]
+    fn test_auto_save_edge_cases() {
+        let auto_save_fn = create_auto_save_fn();
+
+        // Store current state first
+        let original_config = Config::load_or_default();
+
+        // Test with empty values
+        auto_save_fn("", "", "");
+        let config = Config::load_or_default();
+        assert_eq!(config.ip, "");
+        assert_eq!(config.port, "");
+        assert_eq!(config.file_path, "");
+
+        // Test with maximum port value
+        auto_save_fn("255.255.255.255", "65535", "/max/test.bin");
+        let config = Config::load_or_default();
+        assert_eq!(config.ip, "255.255.255.255");
+        assert_eq!(config.port, "65535");
+        assert_eq!(config.file_path, "/max/test.bin");
+
+        // Restore original state
+        auto_save_fn(
+            &original_config.ip,
+            &original_config.port,
+            &original_config.file_path,
+        );
+    }
+
+    #[test]
+    fn test_startup_config_consistency() {
+        let auto_save_fn = create_auto_save_fn();
+
+        // Store current state first
+        let original_config = Config::load_or_default();
+
+        // Save some specific values
+        auto_save_fn("172.16.0.1", "5555", "/consistent/test.bin");
+
+        // Load startup config should return the same values
+        let startup_config = load_startup_config();
+        assert_eq!(startup_config.0, "172.16.0.1");
+        assert_eq!(startup_config.1, "5555");
+        assert_eq!(startup_config.2, "/consistent/test.bin");
+
+        // Restore original state
+        auto_save_fn(
+            &original_config.ip,
+            &original_config.port,
+            &original_config.file_path,
+        );
+    }
+
+    #[test]
+    fn test_auto_save_with_special_characters() {
+        let auto_save_fn = create_auto_save_fn();
+
+        // Store current state first
+        let original_config = Config::load_or_default();
+
+        // Test with special characters in file path
+        auto_save_fn("127.0.0.1", "8080", "/path with spaces/file-name_test.txt");
+
+        let config = Config::load_or_default();
+        assert_eq!(config.ip, "127.0.0.1");
+        assert_eq!(config.port, "8080");
+        assert_eq!(config.file_path, "/path with spaces/file-name_test.txt");
+
+        // Restore original state
+        auto_save_fn(
+            &original_config.ip,
+            &original_config.port,
+            &original_config.file_path,
+        );
+    }
+
+    #[test]
+    fn test_auto_save_function() {
+        let auto_save_fn = create_auto_save_fn();
+
+        // Store current state first
+        let original_config = Config::load_or_default();
+
+        // Test auto-saving some values
+        auto_save_fn("10.0.0.100", "3000", "/test/auto_save.bin");
+
+        // Load it back to verify it was saved
+        let config = Config::load_or_default();
+        assert_eq!(config.ip, "10.0.0.100");
+        assert_eq!(config.port, "3000");
+        assert_eq!(config.file_path, "/test/auto_save.bin");
+
+        // Restore original state
+        auto_save_fn(
+            &original_config.ip,
+            &original_config.port,
+            &original_config.file_path,
+        );
     }
 }

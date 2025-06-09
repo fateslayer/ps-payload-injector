@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Config {
@@ -17,6 +17,35 @@ impl Config {
             port,
             file_path,
         }
+    }
+
+    /// Get the default path for auto-save config file
+    pub fn default_auto_save_path() -> PathBuf {
+        // Always use current directory for config file
+        PathBuf::from("app_config.json")
+    }
+
+    /// Load config from default auto-save path with fallback to defaults
+    pub fn load_or_default() -> Self {
+        let config_path = Self::default_auto_save_path();
+
+        match Self::load_from_file(&config_path) {
+            Ok(config) => config,
+            Err(_) => {
+                // Return default config if loading fails
+                Self::new(
+                    "192.168.1.2".to_string(),
+                    "9025".to_string(),
+                    "".to_string(),
+                )
+            }
+        }
+    }
+
+    /// Auto-save config to default location
+    pub fn auto_save(&self) -> Result<(), String> {
+        let config_path = Self::default_auto_save_path();
+        self.save_to_file(&config_path)
     }
 
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
@@ -200,5 +229,46 @@ mod tests {
         assert_eq!(loaded_config.ip, "");
         assert_eq!(loaded_config.port, "");
         assert_eq!(loaded_config.file_path, "");
+    }
+
+    #[test]
+    fn test_load_or_default() {
+        // Test loading defaults when no config file exists
+        let config = Config::load_or_default();
+
+        // Should have default values
+        assert_eq!(config.ip, "192.168.1.2");
+        assert_eq!(config.port, "9025");
+        assert_eq!(config.file_path, "");
+    }
+
+    #[test]
+    fn test_auto_save() {
+        let config = Config::new(
+            "10.0.0.1".to_string(),
+            "8080".to_string(),
+            "/test/path.txt".to_string(),
+        );
+
+        // Auto-save should work without errors
+        // Note: This creates app_config.json in the current directory
+        assert!(config.auto_save().is_ok());
+
+        // Load it back to verify
+        let loaded = Config::load_or_default();
+        assert_eq!(loaded.ip, "10.0.0.1");
+        assert_eq!(loaded.port, "8080");
+        assert_eq!(loaded.file_path, "/test/path.txt");
+
+        // Clean up - restore original state by checking what was there before
+        // Since tests may run in any order, let's just clean up our specific test values
+        if loaded.ip == "10.0.0.1" && loaded.port == "8080" {
+            let default_config = Config::new(
+                "192.168.1.2".to_string(),
+                "9025".to_string(),
+                "".to_string(),
+            );
+            let _ = default_config.auto_save();
+        }
     }
 }

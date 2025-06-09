@@ -1,6 +1,7 @@
 use eframe::egui;
 use ps_payload_injector::handlers::{
-    create_inject_fn, create_load_config_fn, create_save_config_fn,
+    create_auto_save_fn, create_inject_fn, create_load_config_fn, create_save_config_fn,
+    load_startup_config,
 };
 
 fn main() -> eframe::Result {
@@ -16,6 +17,8 @@ fn main() -> eframe::Result {
     let inject_fn = create_inject_fn();
     let save_config_fn = create_save_config_fn();
     let load_config_fn = create_load_config_fn();
+    let auto_save_fn = create_auto_save_fn();
+    let startup_config = load_startup_config();
 
     eframe::run_native(
         app_name,
@@ -25,6 +28,8 @@ fn main() -> eframe::Result {
                 inject_fn,
                 save_config_fn,
                 load_config_fn,
+                auto_save_fn,
+                startup_config,
             )))
         }),
     )

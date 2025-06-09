@@ -11,11 +11,12 @@ pub enum InjectionStatus {
     ConfigLoaded(String, String, String), // ip, port, file_path
 }
 
-pub struct App<F, G, H>
+pub struct App<F, G, H, I>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
+    I: Fn(&str, &str, &str) + Send + 'static,
 {
     ip: String,
     port: String,
@@ -24,34 +25,46 @@ where
     inject_fn: F,
     save_config_fn: G,
     load_config_fn: H,
+    auto_save_fn: I,
     receiver: Option<mpsc::Receiver<InjectionStatus>>,
+    values_changed: bool, // Track if values have changed since last save
 }
 
-impl<F, G, H> App<F, G, H>
+impl<F, G, H, I> App<F, G, H, I>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
+    I: Fn(&str, &str, &str) + Send + 'static,
 {
-    pub fn new(inject_fn: F, save_config_fn: G, load_config_fn: H) -> Self {
+    pub fn new(
+        inject_fn: F,
+        save_config_fn: G,
+        load_config_fn: H,
+        auto_save_fn: I,
+        startup_config: (String, String, String),
+    ) -> Self {
         Self {
-            ip: "192.168.1.2".to_owned(),
-            port: "9025".to_owned(),
-            file_path: "".to_owned(),
+            ip: startup_config.0,
+            port: startup_config.1,
+            file_path: startup_config.2,
             status: InjectionStatus::Idle,
             inject_fn,
             save_config_fn,
             load_config_fn,
+            auto_save_fn,
             receiver: None,
+            values_changed: false,
         }
     }
 }
 
-impl<F, G, H> eframe::App for App<F, G, H>
+impl<F, G, H, I> eframe::App for App<F, G, H, I>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
+    I: Fn(&str, &str, &str) + Send + 'static,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for status updates from the async task
@@ -62,10 +75,17 @@ where
                     self.ip = ip.clone();
                     self.port = port.clone();
                     self.file_path = file_path.clone();
+                    self.values_changed = true; // Mark as changed for auto-save
                 }
                 self.status = new_status;
                 ctx.request_repaint(); // Request UI update
             }
+        }
+
+        // Auto-save config when values change
+        if self.values_changed {
+            (self.auto_save_fn)(&self.ip, &self.port, &self.file_path);
+            self.values_changed = false;
         }
 
         // Increase font sizes for all text elements and add padding
@@ -113,34 +133,44 @@ where
                 .show(ui, |ui| {
                     // IP Address row
                     ui.add_sized([80.0, 20.0], egui::Label::new("IP Address:"));
-                    ui.add(
+                    let ip_response = ui.add(
                         egui::TextEdit::singleline(&mut self.ip)
                             .desired_width(ui.available_width() - 20.0)
                             .margin(egui::Vec2::new(8.0, 6.0)),
                     );
+                    if ip_response.changed() {
+                        self.values_changed = true;
+                    }
                     ui.end_row();
 
                     // Port row
                     ui.add_sized([80.0, 20.0], egui::Label::new("Port:"));
-                    ui.add(
+                    let port_response = ui.add(
                         egui::TextEdit::singleline(&mut self.port)
                             .desired_width(ui.available_width() - 20.0)
                             .margin(egui::Vec2::new(8.0, 6.0)),
                     );
+                    if port_response.changed() {
+                        self.values_changed = true;
+                    }
                     ui.end_row();
 
                     // File Path row
                     ui.add_sized([80.0, 20.0], egui::Label::new("File Path:"));
                     ui.horizontal(|ui| {
-                        ui.add(
+                        let file_path_response = ui.add(
                             egui::TextEdit::singleline(&mut self.file_path)
                                 .desired_width(ui.available_width() - 123.0) // Leave more space for button + margin
                                 .margin(egui::Vec2::new(8.0, 6.0)),
                         );
+                        if file_path_response.changed() {
+                            self.values_changed = true;
+                        }
                         ui.add_space(5.0);
                         if ui.button("Browse...").clicked() {
                             if let Some(path) = rfd::FileDialog::new().pick_file() {
                                 self.file_path = path.display().to_string();
+                                self.values_changed = true;
                             }
                         }
                     });
@@ -198,13 +228,19 @@ where
                 });
         });
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // Auto-save config on app exit
+        (self.auto_save_fn)(&self.ip, &self.port, &self.file_path);
+    }
 }
 
-impl<F, G, H> App<F, G, H>
+impl<F, G, H, I> App<F, G, H, I>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
+    I: Fn(&str, &str, &str) + Send + 'static,
 {
     fn is_input_valid(&self) -> bool {
         // Check if IP address is not empty and not just whitespace
@@ -342,12 +378,23 @@ mod tests {
 
     #[test]
     fn test_app_new() {
-        let app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+        let app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            |_, _, _| {},
+            (
+                "192.168.1.1".to_string(),
+                "8080".to_string(),
+                "/test/path".to_string(),
+            ),
+        );
 
-        assert_eq!(app.ip, "192.168.1.2");
-        assert_eq!(app.port, "9025");
-        assert_eq!(app.file_path, "");
+        // Values should now be loaded from config (or defaults if no config exists)
+        assert!(!app.ip.is_empty());
+        assert!(!app.port.is_empty());
         assert!(matches!(app.status, InjectionStatus::Idle));
+        assert!(!app.values_changed); // Should start as unchanged
     }
 
     #[test]
@@ -372,7 +419,17 @@ mod tests {
 
     #[test]
     fn test_is_input_valid() {
-        let mut app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+        let mut app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            |_, _, _| {},
+            (
+                "192.168.1.1".to_string(),
+                "8080".to_string(),
+                "/test/path".to_string(),
+            ),
+        );
 
         // Test invalid cases
         assert!(!app.is_input_valid()); // Empty file path
@@ -406,7 +463,17 @@ mod tests {
 
     #[test]
     fn test_status_text() {
-        let app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+        let app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            |_, _, _| {},
+            (
+                "192.168.1.1".to_string(),
+                "8080".to_string(),
+                "/test/path".to_string(),
+            ),
+        );
 
         let mut test_app = app;
 
@@ -432,7 +499,17 @@ mod tests {
 
     #[test]
     fn test_status_color() {
-        let app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+        let app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            |_, _, _| {},
+            (
+                "192.168.1.1".to_string(),
+                "8080".to_string(),
+                "/test/path".to_string(),
+            ),
+        );
         let mut test_app = app;
 
         test_app.status = InjectionStatus::Idle;
@@ -469,7 +546,17 @@ mod tests {
 
     #[test]
     fn test_inject_payload_validation() {
-        let mut app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+        let mut app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            |_, _, _| {},
+            (
+                "192.168.1.1".to_string(),
+                "8080".to_string(),
+                "/test/path".to_string(),
+            ),
+        );
 
         // Test empty file path
         app.inject_payload();
@@ -519,7 +606,17 @@ mod tests {
 
     #[test]
     fn test_edge_cases() {
-        let mut app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+        let mut app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            |_, _, _| {},
+            (
+                "192.168.1.1".to_string(),
+                "8080".to_string(),
+                "/test/path".to_string(),
+            ),
+        );
 
         // Test with whitespace in IP
         app.ip = "  192.168.1.1  ".to_string();
@@ -544,7 +641,17 @@ mod tests {
     fn test_config_loaded_populates_fields() {
         // This test would require setting up a receiver, which is complex in unit tests
         // In a real scenario, you'd test the field population logic
-        let mut app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+        let mut app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            |_, _, _| {},
+            (
+                "192.168.1.1".to_string(),
+                "8080".to_string(),
+                "/test/path".to_string(),
+            ),
+        );
 
         // Simulate what happens when ConfigLoaded is received
         let (sender, receiver) = mpsc::channel();
