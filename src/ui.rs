@@ -47,10 +47,12 @@ where
 
             ui.horizontal(|ui| {
                 ui.add_space(90.0);
-                if ui
-                    .add_sized([100.0, 30.0], egui::Button::new("Inject Payload"))
-                    .clicked()
-                {
+                let inject_button = ui.add_enabled(
+                    self.is_input_valid(),
+                    egui::Button::new("Inject Payload").min_size(egui::Vec2::new(100.0, 30.0)),
+                );
+
+                if inject_button.clicked() {
                     self.inject_payload();
                 }
             });
@@ -95,6 +97,25 @@ where
                 }
             }
         });
+    }
+
+    fn is_input_valid(&self) -> bool {
+        // Check if IP address is not empty and not just whitespace
+        if self.ip.trim().is_empty() {
+            return false;
+        }
+
+        // Check if port is not empty, not just whitespace, and is a valid u16
+        if self.port.trim().is_empty() || self.port.parse::<u16>().is_err() {
+            return false;
+        }
+
+        // Check if file path is not empty and file exists
+        if self.file_path.trim().is_empty() || !Path::new(&self.file_path).exists() {
+            return false;
+        }
+
+        true
     }
 
     fn status_color(&self) -> egui::Color32 {
