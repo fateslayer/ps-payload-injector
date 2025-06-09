@@ -130,18 +130,22 @@ where
                     ui.end_row();
 
                     ui.add_sized([80.0, 20.0], egui::Label::new("")); // Empty first column
-                    let inject_button = ui.add_enabled(
-                        self.is_input_valid()
-                            && !matches!(self.status, InjectionStatus::InProgress(_)),
-                        egui::Button::new(match &self.status {
-                            InjectionStatus::InProgress(_) => "Injecting...",
-                            _ => "Inject Payload",
-                        }),
-                    );
 
-                    if inject_button.clicked() {
-                        self.inject_payload();
-                    }
+                    ui.horizontal(|ui| {
+                        let inject_button = ui.add_enabled(
+                            self.is_input_valid()
+                                && !matches!(self.status, InjectionStatus::InProgress(_)),
+                            egui::Button::new(match &self.status {
+                                InjectionStatus::InProgress(_) => "Injecting...",
+                                _ => "Inject Payload",
+                            }),
+                        );
+
+                        if inject_button.clicked() {
+                            self.inject_payload();
+                        }
+                    });
+
                     ui.end_row();
                 });
 
