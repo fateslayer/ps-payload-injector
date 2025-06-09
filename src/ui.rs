@@ -1,29 +1,36 @@
 use eframe::egui;
-use std::fs::File;
-use std::io::{Read, Write};
-use std::net::TcpStream;
 use std::path::Path;
-use std::time::Duration;
 
-pub struct App {
+pub struct App<F>
+where
+    F: Fn(&str, &str, &str) -> Result<usize, String>,
+{
     ip: String,
     port: String,
     file_path: String,
     status: String,
+    inject_fn: F,
 }
 
-impl Default for App {
-    fn default() -> Self {
+impl<F> App<F>
+where
+    F: Fn(&str, &str, &str) -> Result<usize, String>,
+{
+    pub fn new(inject_fn: F) -> Self {
         Self {
             ip: "192.168.1.2".to_owned(),
             port: "9025".to_owned(),
             file_path: "".to_owned(),
             status: "Idle".to_owned(),
+            inject_fn,
         }
     }
 }
 
-impl eframe::App for App {
+impl<F> eframe::App for App<F>
+where
+    F: Fn(&str, &str, &str) -> Result<usize, String>,
+{
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.add_space(20.0);
@@ -65,7 +72,10 @@ impl eframe::App for App {
     }
 }
 
-impl App {
+impl<F> App<F>
+where
+    F: Fn(&str, &str, &str) -> Result<usize, String>,
+{
     fn add_text_input(ui: &mut egui::Ui, label: &str, text: &mut String) {
         ui.horizontal(|ui| {
             ui.add_sized([80.0, 20.0], egui::Label::new(label));
@@ -130,7 +140,7 @@ impl App {
             self.file_path, self.ip, self.port
         );
 
-        match self.send_file_via_tcp() {
+        match (self.inject_fn)(&self.ip, &self.port, &self.file_path) {
             Ok(bytes_sent) => {
                 self.status = format!("Success! Sent {} bytes", bytes_sent);
             }
@@ -138,43 +148,5 @@ impl App {
                 self.status = format!("Error: {}", e);
             }
         }
-    }
-
-    fn send_file_via_tcp(&mut self) -> Result<usize, String> {
-        let address = format!("{}:{}", self.ip, self.port);
-
-        let mut file = File::open(&self.file_path)
-            .map_err(|e| format!("Failed to open file '{}': {}", self.file_path, e))?;
-
-        let mut buffer = Vec::new();
-
-        file.read_to_end(&mut buffer)
-            .map_err(|e| format!("Failed to read file '{}': {}", self.file_path, e))?;
-
-        self.status = format!("Connecting to {}...", address);
-
-        let mut stream = TcpStream::connect_timeout(
-            &address
-                .parse()
-                .map_err(|e| format!("Invalid address '{}': {}", address, e))?,
-            Duration::from_secs(10),
-        )
-        .map_err(|e| format!("Failed to connect to {}: {}", address, e))?;
-
-        stream
-            .set_write_timeout(Some(Duration::from_secs(30)))
-            .map_err(|e| format!("Failed to set write timeout: {}", e))?;
-
-        self.status = format!("Connected! Sending {} bytes...", buffer.len());
-
-        stream
-            .write_all(&buffer)
-            .map_err(|e| format!("Failed to send data: {}", e))?;
-
-        stream
-            .flush()
-            .map_err(|e| format!("Failed to flush data: {}", e))?;
-
-        Ok(buffer.len())
     }
 }
