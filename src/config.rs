@@ -62,3 +62,143 @@ impl Config {
         Ok(config)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use tempfile::NamedTempFile;
+
+    #[test]
+    fn test_config_new() {
+        let config = Config::new(
+            "192.168.1.1".to_string(),
+            "8080".to_string(),
+            "/path/to/file".to_string(),
+        );
+
+        assert_eq!(config.ip, "192.168.1.1");
+        assert_eq!(config.port, "8080");
+        assert_eq!(config.file_path, "/path/to/file");
+    }
+
+    #[test]
+    fn test_save_and_load_config() {
+        let original_config = Config::new(
+            "10.0.0.1".to_string(),
+            "9025".to_string(),
+            "/test/path/payload.bin".to_string(),
+        );
+
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let temp_path = temp_file.path();
+
+        // Test saving
+        assert!(original_config.save_to_file(temp_path).is_ok());
+
+        // Test loading
+        let loaded_config = Config::load_from_file(temp_path).expect("Failed to load config");
+
+        assert_eq!(loaded_config.ip, original_config.ip);
+        assert_eq!(loaded_config.port, original_config.port);
+        assert_eq!(loaded_config.file_path, original_config.file_path);
+    }
+
+    #[test]
+    fn test_save_config_creates_valid_json() {
+        let config = Config::new(
+            "172.16.0.1".to_string(),
+            "3000".to_string(),
+            "/home/user/file.txt".to_string(),
+        );
+
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let temp_path = temp_file.path();
+
+        assert!(config.save_to_file(temp_path).is_ok());
+
+        let file_content = fs::read_to_string(temp_path).expect("Failed to read file");
+        assert!(file_content.contains("\"ip\": \"172.16.0.1\""));
+        assert!(file_content.contains("\"port\": \"3000\""));
+        assert!(file_content.contains("\"file_path\": \"/home/user/file.txt\""));
+    }
+
+    #[test]
+    fn test_load_config_invalid_json() {
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let temp_path = temp_file.path();
+
+        // Write invalid JSON
+        fs::write(temp_path, "{ invalid json }").expect("Failed to write file");
+
+        let result = Config::load_from_file(temp_path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to parse config file"));
+    }
+
+    #[test]
+    fn test_load_config_missing_fields() {
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let temp_path = temp_file.path();
+
+        // Write JSON with missing fields
+        fs::write(temp_path, r#"{"ip": "192.168.1.1"}"#).expect("Failed to write file");
+
+        let result = Config::load_from_file(temp_path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to parse config file"));
+    }
+
+    #[test]
+    fn test_load_config_nonexistent_file() {
+        let result = Config::load_from_file("/path/that/does/not/exist.json");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to read config file"));
+    }
+
+    #[test]
+    fn test_save_config_to_readonly_location() {
+        let config = Config::new(
+            "192.168.1.1".to_string(),
+            "8080".to_string(),
+            "/test/path".to_string(),
+        );
+
+        // Try to save to a location that doesn't exist and can't be created
+        let result = config.save_to_file("/root/readonly/config.json");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Failed to create config file"));
+    }
+
+    #[test]
+    fn test_config_with_special_characters() {
+        let config = Config::new(
+            "192.168.1.1".to_string(),
+            "8080".to_string(),
+            "/path with spaces/file name.txt".to_string(),
+        );
+
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let temp_path = temp_file.path();
+
+        assert!(config.save_to_file(temp_path).is_ok());
+        let loaded_config = Config::load_from_file(temp_path).expect("Failed to load config");
+
+        assert_eq!(loaded_config.file_path, "/path with spaces/file name.txt");
+    }
+
+    #[test]
+    fn test_config_with_empty_values() {
+        let config = Config::new("".to_string(), "".to_string(), "".to_string());
+
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        let temp_path = temp_file.path();
+
+        assert!(config.save_to_file(temp_path).is_ok());
+        let loaded_config = Config::load_from_file(temp_path).expect("Failed to load config");
+
+        assert_eq!(loaded_config.ip, "");
+        assert_eq!(loaded_config.port, "");
+        assert_eq!(loaded_config.file_path, "");
+    }
+}

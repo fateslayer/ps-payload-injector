@@ -1,10 +1,7 @@
-mod config;
-mod handlers;
-mod network;
-mod ui;
-
 use eframe::egui;
-use handlers::{create_inject_fn, create_load_config_fn, create_save_config_fn};
+use ps_payload_injector::handlers::{
+    create_inject_fn, create_load_config_fn, create_save_config_fn,
+};
 
 fn main() -> eframe::Result {
     let app_name = "PS Payload Injector";
@@ -24,7 +21,7 @@ fn main() -> eframe::Result {
         app_name,
         options,
         Box::new(|_cc| {
-            Ok(Box::new(ui::App::new(
+            Ok(Box::new(ps_payload_injector::ui::App::new(
                 inject_fn,
                 save_config_fn,
                 load_config_fn,

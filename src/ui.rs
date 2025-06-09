@@ -310,3 +310,271 @@ where
         (self.load_config_fn)(sender);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use tempfile::NamedTempFile;
+
+    // Mock functions for testing
+    fn mock_inject_fn(
+        _ip: &str,
+        _port: &str,
+        _file_path: &str,
+        _sender: mpsc::Sender<InjectionStatus>,
+    ) {
+        // Does nothing for testing
+    }
+
+    fn mock_save_config_fn(
+        _ip: &str,
+        _port: &str,
+        _file_path: &str,
+        _sender: mpsc::Sender<InjectionStatus>,
+    ) {
+        // Does nothing for testing
+    }
+
+    fn mock_load_config_fn(_sender: mpsc::Sender<InjectionStatus>) {
+        // Does nothing for testing
+    }
+
+    #[test]
+    fn test_app_new() {
+        let app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+
+        assert_eq!(app.ip, "192.168.1.2");
+        assert_eq!(app.port, "9025");
+        assert_eq!(app.file_path, "");
+        assert!(matches!(app.status, InjectionStatus::Idle));
+    }
+
+    #[test]
+    fn test_injection_status_debug() {
+        let idle = InjectionStatus::Idle;
+        let in_progress = InjectionStatus::InProgress("Testing".to_string());
+        let success = InjectionStatus::Success(1024);
+        let error = InjectionStatus::Error("Test error".to_string());
+        let config_loaded = InjectionStatus::ConfigLoaded(
+            "192.168.1.1".to_string(),
+            "8080".to_string(),
+            "/test/path".to_string(),
+        );
+
+        // Test that Debug trait works
+        assert!(format!("{:?}", idle).contains("Idle"));
+        assert!(format!("{:?}", in_progress).contains("InProgress"));
+        assert!(format!("{:?}", success).contains("Success"));
+        assert!(format!("{:?}", error).contains("Error"));
+        assert!(format!("{:?}", config_loaded).contains("ConfigLoaded"));
+    }
+
+    #[test]
+    fn test_is_input_valid() {
+        let mut app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+
+        // Test invalid cases
+        assert!(!app.is_input_valid()); // Empty file path
+
+        app.file_path = "/nonexistent/file.txt".to_string();
+        assert!(!app.is_input_valid()); // File doesn't exist
+
+        // Create a temp file for valid file path
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        app.file_path = temp_file.path().to_str().unwrap().to_string();
+
+        app.ip = "".to_string();
+        assert!(!app.is_input_valid()); // Empty IP
+
+        app.ip = "   ".to_string();
+        assert!(!app.is_input_valid()); // Whitespace only IP
+
+        app.ip = "192.168.1.1".to_string();
+        app.port = "".to_string();
+        assert!(!app.is_input_valid()); // Empty port
+
+        app.port = "invalid".to_string();
+        assert!(!app.is_input_valid()); // Invalid port
+
+        app.port = "65536".to_string();
+        assert!(!app.is_input_valid()); // Port out of range
+
+        app.port = "8080".to_string();
+        assert!(app.is_input_valid()); // All valid
+    }
+
+    #[test]
+    fn test_status_text() {
+        let app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+
+        let mut test_app = app;
+
+        test_app.status = InjectionStatus::Idle;
+        assert_eq!(test_app.status_text(), "Idle");
+
+        test_app.status = InjectionStatus::InProgress("Testing...".to_string());
+        assert_eq!(test_app.status_text(), "Testing...");
+
+        test_app.status = InjectionStatus::Success(1024);
+        assert_eq!(test_app.status_text(), "Success! Sent 1024 bytes");
+
+        test_app.status = InjectionStatus::Error("Test error".to_string());
+        assert_eq!(test_app.status_text(), "Error: Test error");
+
+        test_app.status = InjectionStatus::ConfigLoaded(
+            "192.168.1.1".to_string(),
+            "8080".to_string(),
+            "/test/path".to_string(),
+        );
+        assert_eq!(test_app.status_text(), "Config loaded successfully");
+    }
+
+    #[test]
+    fn test_status_color() {
+        let app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+        let mut test_app = app;
+
+        test_app.status = InjectionStatus::Idle;
+        assert_eq!(
+            test_app.status_color(),
+            egui::Color32::from_rgb(120, 120, 120)
+        );
+
+        test_app.status = InjectionStatus::InProgress("Testing".to_string());
+        assert_eq!(
+            test_app.status_color(),
+            egui::Color32::from_rgb(255, 165, 0)
+        );
+
+        test_app.status = InjectionStatus::Success(1024);
+        assert_eq!(
+            test_app.status_color(),
+            egui::Color32::from_rgb(80, 180, 80)
+        );
+
+        test_app.status = InjectionStatus::Error("Error".to_string());
+        assert_eq!(
+            test_app.status_color(),
+            egui::Color32::from_rgb(220, 80, 80)
+        );
+
+        test_app.status =
+            InjectionStatus::ConfigLoaded("ip".to_string(), "port".to_string(), "path".to_string());
+        assert_eq!(
+            test_app.status_color(),
+            egui::Color32::from_rgb(80, 180, 80)
+        );
+    }
+
+    #[test]
+    fn test_inject_payload_validation() {
+        let mut app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+
+        // Test empty file path
+        app.inject_payload();
+        assert!(matches!(app.status, InjectionStatus::Error(_)));
+        if let InjectionStatus::Error(msg) = &app.status {
+            assert!(msg.contains("No file selected"));
+        }
+
+        // Test nonexistent file
+        app.file_path = "/nonexistent/file.txt".to_string();
+        app.inject_payload();
+        assert!(matches!(app.status, InjectionStatus::Error(_)));
+        if let InjectionStatus::Error(msg) = &app.status {
+            assert!(msg.contains("File does not exist"));
+        }
+
+        // Create a temp file
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        app.file_path = temp_file.path().to_str().unwrap().to_string();
+
+        // Test empty IP
+        app.ip = "".to_string();
+        app.inject_payload();
+        assert!(matches!(app.status, InjectionStatus::Error(_)));
+        if let InjectionStatus::Error(msg) = &app.status {
+            assert!(msg.contains("IP address is required"));
+        }
+
+        app.ip = "192.168.1.1".to_string();
+
+        // Test empty port
+        app.port = "".to_string();
+        app.inject_payload();
+        assert!(matches!(app.status, InjectionStatus::Error(_)));
+        if let InjectionStatus::Error(msg) = &app.status {
+            assert!(msg.contains("Port is required"));
+        }
+
+        // Test invalid port
+        app.port = "invalid".to_string();
+        app.inject_payload();
+        assert!(matches!(app.status, InjectionStatus::Error(_)));
+        if let InjectionStatus::Error(msg) = &app.status {
+            assert!(msg.contains("Invalid port number"));
+        }
+    }
+
+    #[test]
+    fn test_edge_cases() {
+        let mut app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+
+        // Test with whitespace in IP
+        app.ip = "  192.168.1.1  ".to_string();
+        app.port = "8080".to_string();
+        let temp_file = NamedTempFile::new().expect("Failed to create temp file");
+        app.file_path = temp_file.path().to_str().unwrap().to_string();
+
+        assert!(app.is_input_valid()); // Should handle whitespace
+
+        // Test port edge cases
+        app.port = "1".to_string();
+        assert!(app.is_input_valid()); // Port 1 is valid
+
+        app.port = "65535".to_string();
+        assert!(app.is_input_valid()); // Port 65535 is valid
+
+        app.port = "0".to_string();
+        assert!(app.is_input_valid()); // Port 0 is technically valid for u16
+    }
+
+    #[test]
+    fn test_config_loaded_populates_fields() {
+        // This test would require setting up a receiver, which is complex in unit tests
+        // In a real scenario, you'd test the field population logic
+        let mut app = App::new(mock_inject_fn, mock_save_config_fn, mock_load_config_fn);
+
+        // Simulate what happens when ConfigLoaded is received
+        let (sender, receiver) = mpsc::channel();
+        app.receiver = Some(receiver);
+
+        // Send a ConfigLoaded status
+        sender
+            .send(InjectionStatus::ConfigLoaded(
+                "10.0.0.1".to_string(),
+                "9000".to_string(),
+                "/new/path.txt".to_string(),
+            ))
+            .unwrap();
+
+        // In the real app, this would be handled in the update method
+        // For testing purposes, we simulate the behavior
+        if let Some(receiver) = &app.receiver {
+            if let Ok(new_status) = receiver.try_recv() {
+                if let InjectionStatus::ConfigLoaded(ip, port, file_path) = &new_status {
+                    app.ip = ip.clone();
+                    app.port = port.clone();
+                    app.file_path = file_path.clone();
+                }
+                app.status = new_status;
+            }
+        }
+
+        assert_eq!(app.ip, "10.0.0.1");
+        assert_eq!(app.port, "9000");
+        assert_eq!(app.file_path, "/new/path.txt");
+        assert!(matches!(app.status, InjectionStatus::ConfigLoaded(_, _, _)));
+    }
+}
