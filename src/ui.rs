@@ -47,19 +47,17 @@ where
 
             ui.horizontal(|ui| {
                 ui.add_space(90.0);
-                let inject_button = ui.add_enabled(
-                    self.is_input_valid(),
-                    egui::Button::new("Inject Payload").min_size(egui::Vec2::new(100.0, 30.0)),
-                );
+                let inject_button =
+                    ui.add_enabled(self.is_input_valid(), egui::Button::new("Inject Payload"));
 
                 if inject_button.clicked() {
                     self.inject_payload();
                 }
             });
 
-            ui.add_space(10.0);
+            ui.add_space(20.0);
             ui.separator();
-            ui.add_space(10.0);
+            ui.add_space(20.0);
 
             ui.horizontal(|ui| {
                 ui.add_sized([80.0, 20.0], egui::Label::new("Status:"));
