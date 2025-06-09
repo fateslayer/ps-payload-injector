@@ -32,42 +32,110 @@ where
     F: Fn(&str, &str, &str) -> Result<usize, String>,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Increase font sizes for all text elements and add padding
+        ctx.style_mut(|style| {
+            style
+                .text_styles
+                .get_mut(&egui::TextStyle::Body)
+                .unwrap()
+                .size = 16.0;
+            style
+                .text_styles
+                .get_mut(&egui::TextStyle::Button)
+                .unwrap()
+                .size = 16.0;
+            style
+                .text_styles
+                .get_mut(&egui::TextStyle::Heading)
+                .unwrap()
+                .size = 20.0;
+            style
+                .text_styles
+                .get_mut(&egui::TextStyle::Monospace)
+                .unwrap()
+                .size = 16.0;
+            style
+                .text_styles
+                .get_mut(&egui::TextStyle::Small)
+                .unwrap()
+                .size = 14.0;
+
+            // Add padding to buttons and text inputs
+            style.spacing.button_padding = egui::Vec2::new(12.0, 5.0);
+            style.spacing.indent = 20.0;
+            style.spacing.item_spacing = egui::Vec2::new(8.0, 8.0);
+            style.spacing.interact_size.y = 30.0;
+        });
+
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.add_space(20.0);
+            ui.add_space(10.0);
 
-            ui.vertical(|ui| {
-                Self::add_text_input(ui, "IP Address:", &mut self.ip);
-                ui.add_space(15.0);
-                Self::add_text_input(ui, "Port:", &mut self.port);
-                ui.add_space(15.0);
-                self.add_file_input(ui);
-            });
+            // IP Address and Port rows - 2 columns
+            egui::Grid::new("basic_input_grid")
+                .num_columns(2)
+                .spacing([15.0, 15.0])
+                .show(ui, |ui| {
+                    // IP Address row
+                    ui.add_sized([80.0, 20.0], egui::Label::new("IP Address:"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.ip)
+                            .desired_width(ui.available_width() - 20.0)
+                            .margin(egui::Vec2::new(8.0, 6.0)),
+                    );
+                    ui.end_row();
 
-            ui.add_space(20.0);
+                    // Port row
+                    ui.add_sized([80.0, 20.0], egui::Label::new("Port:"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.port)
+                            .desired_width(ui.available_width() - 20.0)
+                            .margin(egui::Vec2::new(8.0, 6.0)),
+                    );
+                    ui.end_row();
 
-            ui.horizontal(|ui| {
-                ui.add_space(90.0);
-                let inject_button =
-                    ui.add_enabled(self.is_input_valid(), egui::Button::new("Inject Payload"));
+                    // File Path row
+                    ui.add_sized([80.0, 20.0], egui::Label::new("File Path:"));
+                    ui.horizontal(|ui| {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.file_path)
+                                .desired_width(ui.available_width() - 123.0) // Leave more space for button + margin
+                                .margin(egui::Vec2::new(8.0, 6.0)),
+                        );
+                        ui.add_space(5.0);
+                        if ui.button("Browse...").clicked() {
+                            if let Some(path) = rfd::FileDialog::new().pick_file() {
+                                self.file_path = path.display().to_string();
+                            }
+                        }
+                    });
+                    ui.end_row();
 
-                if inject_button.clicked() {
-                    self.inject_payload();
-                }
-            });
+                    ui.add_sized([80.0, 20.0], egui::Label::new("")); // Empty first column
+                    let inject_button =
+                        ui.add_enabled(self.is_input_valid(), egui::Button::new("Inject Payload"));
 
-            ui.add_space(20.0);
+                    if inject_button.clicked() {
+                        self.inject_payload();
+                    }
+                    ui.end_row();
+                });
+
+            ui.add_space(10.0);
             ui.separator();
-            ui.add_space(20.0);
 
-            ui.horizontal(|ui| {
-                ui.add_sized([80.0, 20.0], egui::Label::new("Status:"));
-                ui.add(
-                    egui::Label::new(egui::RichText::new(&self.status).color(self.status_color()))
+            egui::Grid::new("status_grid")
+                .num_columns(2)
+                .spacing([15.0, 15.0])
+                .show(ui, |ui| {
+                    ui.add_sized([80.0, 20.0], egui::Label::new("Status:"));
+                    ui.add(
+                        egui::Label::new(
+                            egui::RichText::new(&self.status).color(self.status_color()),
+                        )
                         .wrap(),
-                );
-            });
-
-            ui.add_space(20.0);
+                    );
+                    ui.end_row();
+                });
         });
     }
 }
@@ -76,27 +144,6 @@ impl<F> App<F>
 where
     F: Fn(&str, &str, &str) -> Result<usize, String>,
 {
-    fn add_text_input(ui: &mut egui::Ui, label: &str, text: &mut String) {
-        ui.horizontal(|ui| {
-            ui.add_sized([80.0, 20.0], egui::Label::new(label));
-            ui.add(egui::TextEdit::singleline(text).desired_width(ui.available_width() - 20.0));
-        });
-    }
-
-    fn add_file_input(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.add_sized([80.0, 20.0], egui::Label::new("File Path:"));
-            let available_width = ui.available_width() - 100.0;
-            ui.add(egui::TextEdit::singleline(&mut self.file_path).desired_width(available_width));
-            ui.add_space(10.0);
-            if ui.button("Browse...").clicked() {
-                if let Some(path) = rfd::FileDialog::new().pick_file() {
-                    self.file_path = path.display().to_string();
-                }
-            }
-        });
-    }
-
     fn is_input_valid(&self) -> bool {
         // Check if IP address is not empty and not just whitespace
         if self.ip.trim().is_empty() {
