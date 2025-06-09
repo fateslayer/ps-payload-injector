@@ -10,37 +10,42 @@ pub enum InjectionStatus {
     Error(String),
 }
 
-pub struct App<F>
+pub struct App<F, G>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
+    G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     ip: String,
     port: String,
     file_path: String,
     status: InjectionStatus,
     inject_fn: F,
+    save_config_fn: G,
     receiver: Option<mpsc::Receiver<InjectionStatus>>,
 }
 
-impl<F> App<F>
+impl<F, G> App<F, G>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
+    G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
-    pub fn new(inject_fn: F) -> Self {
+    pub fn new(inject_fn: F, save_config_fn: G) -> Self {
         Self {
             ip: "192.168.1.2".to_owned(),
             port: "9025".to_owned(),
             file_path: "".to_owned(),
             status: InjectionStatus::Idle,
             inject_fn,
+            save_config_fn,
             receiver: None,
         }
     }
 }
 
-impl<F> eframe::App for App<F>
+impl<F, G> eframe::App for App<F, G>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
+    G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for status updates from the async task
@@ -144,6 +149,15 @@ where
                         if inject_button.clicked() {
                             self.inject_payload();
                         }
+
+                        ui.add_space(5.0);
+
+                        let save_config_button =
+                            ui.add_enabled(self.is_input_valid(), egui::Button::new("Save Config"));
+
+                        if save_config_button.clicked() {
+                            self.save_config();
+                        }
                     });
 
                     ui.end_row();
@@ -169,9 +183,10 @@ where
     }
 }
 
-impl<F> App<F>
+impl<F, G> App<F, G>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
+    G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     fn is_input_valid(&self) -> bool {
         // Check if IP address is not empty and not just whitespace
@@ -250,5 +265,19 @@ where
 
         // Call the injection function with the sender
         (self.inject_fn)(&ip, &port, &file_path, sender);
+    }
+
+    fn save_config(&mut self) {
+        // Create a channel for communication
+        let (sender, receiver) = mpsc::channel();
+        self.receiver = Some(receiver);
+
+        // Clone the necessary data for the save config function
+        let ip = self.ip.clone();
+        let port = self.port.clone();
+        let file_path = self.file_path.clone();
+
+        // Call the save config function with the sender
+        (self.save_config_fn)(&ip, &port, &file_path, sender);
     }
 }

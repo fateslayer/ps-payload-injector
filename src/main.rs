@@ -1,6 +1,8 @@
+mod config;
 mod network;
 mod ui;
 
+use config::Config;
 use eframe::egui;
 use network::FileTransfer;
 use std::sync::mpsc;
@@ -83,9 +85,61 @@ fn main() -> eframe::Result {
             });
         };
 
+    let save_config_fn =
+        |ip: &str, port: &str, file_path: &str, sender: mpsc::Sender<InjectionStatus>| {
+            let ip = ip.to_string();
+            let port = port.to_string();
+            let file_path = file_path.to_string();
+
+            // Spawn the save config task in a separate thread
+            std::thread::spawn(move || {
+                // Send status update: Preparing to save
+                let _ = sender.send(InjectionStatus::InProgress(
+                    "Preparing to save config...".to_string(),
+                ));
+
+                // Create file dialog
+                let mut dialog = rfd::FileDialog::new()
+                    .add_filter("JSON files", &["json"])
+                    .set_file_name("config.json");
+
+                // Set current directory as default
+                if let Ok(current_dir) = std::env::current_dir() {
+                    dialog = dialog.set_directory(&current_dir);
+                }
+
+                if let Some(path) = dialog.save_file() {
+                    let config = Config::new(ip, port, file_path);
+
+                    match config.save_to_file(&path) {
+                        Ok(()) => {
+                            let filename = path
+                                .file_name()
+                                .and_then(|name| name.to_str())
+                                .unwrap_or("unknown");
+                            let _ = sender.send(InjectionStatus::InProgress(format!(
+                                "Config saved to '{}'",
+                                filename
+                            )));
+                        }
+                        Err(e) => {
+                            let _ = sender.send(InjectionStatus::Error(format!(
+                                "Failed to save config: {}",
+                                e
+                            )));
+                        }
+                    }
+                } else {
+                    let _ = sender.send(InjectionStatus::InProgress(
+                        "Config save cancelled".to_string(),
+                    ));
+                }
+            });
+        };
+
     eframe::run_native(
         app_name,
         options,
-        Box::new(|_cc| Ok(Box::new(ui::App::new(inject_fn)))),
+        Box::new(|_cc| Ok(Box::new(ui::App::new(inject_fn, save_config_fn)))),
     )
 }
