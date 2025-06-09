@@ -6,11 +6,11 @@ use std::path::Path;
 use std::time::Duration;
 
 fn main() -> eframe::Result {
-    let app_name = "NetCat Payload Injector";
+    let app_name = "Payload Injector";
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([640.0, 240.0])
+            .with_inner_size([600.0, 260.0])
             .with_resizable(false),
         ..Default::default()
     };
@@ -39,78 +39,87 @@ impl Default for App {
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.add_space(15.0);
+            ui.add_space(20.0);
 
-            ui.spacing_mut().item_spacing = egui::vec2(10.0, 12.0);
-            ui.spacing_mut().button_padding = egui::vec2(8.0, 4.0);
-
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(15.0, 0.0);
-
+            // Main content layout
+            ui.vertical(|ui| {
+                // IP Address row
                 ui.horizontal(|ui| {
-                    ui.label("IP:");
-                    ui.add_space(5.0);
-                    ui.text_edit_singleline(&mut self.ip);
-                });
-
-                ui.add_space(30.0);
-
-                ui.horizontal(|ui| {
-                    ui.label("Port:");
-                    ui.add_space(5.0);
-                    ui.text_edit_singleline(&mut self.port);
-                });
-            });
-
-            ui.add_space(8.0);
-
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing = egui::vec2(10.0, 0.0);
-
-                ui.horizontal(|ui| {
-                    ui.label("Path:");
-                    ui.add_space(5.0);
-                    ui.text_edit_singleline(&mut self.file_path);
+                    ui.add_sized([80.0, 20.0], egui::Label::new("IP Address:"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.ip)
+                            .desired_width(ui.available_width() - 20.0),
+                    );
                 });
 
                 ui.add_space(15.0);
 
-                if ui.button("Open file..").clicked() {
-                    if let Some(path) = rfd::FileDialog::new().pick_file() {
-                        self.file_path = path.display().to_string();
+                // Port row
+                ui.horizontal(|ui| {
+                    ui.add_sized([80.0, 20.0], egui::Label::new("Port:"));
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.port)
+                            .desired_width(ui.available_width() - 20.0),
+                    );
+                });
+                ui.add_space(15.0);
+
+                // File Path row
+                ui.horizontal(|ui| {
+                    ui.add_sized([80.0, 20.0], egui::Label::new("File Path:"));
+                    let available_width = ui.available_width() - 100.0; // Account for Browse button, spacing, and padding
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.file_path)
+                            .desired_width(available_width),
+                    );
+
+                    ui.add_space(10.0);
+
+                    if ui.button("Browse...").clicked() {
+                        if let Some(path) = rfd::FileDialog::new().pick_file() {
+                            self.file_path = path.display().to_string();
+                        }
                     }
-                }
+                });
             });
 
-            ui.add_space(15.0);
+            ui.add_space(20.0);
 
+            // Action buttons
             ui.horizontal(|ui| {
-                if ui.button("Inject").clicked() {
+                ui.add_space(90.0); // Align with the input fields
+                if ui
+                    .add_sized([100.0, 30.0], egui::Button::new("Inject Payload"))
+                    .clicked()
+                {
                     self.inject_payload();
                 }
             });
 
             ui.add_space(10.0);
-
             ui.separator();
-            ui.add_space(8.0);
+            ui.add_space(10.0);
 
-            ui.horizontal(|ui| {
-                ui.label("Status:");
-                ui.add_space(5.0);
-                ui.colored_label(
-                    if self.status.starts_with("Error") {
-                        egui::Color32::from_rgb(200, 100, 100)
-                    } else if self.status.starts_with("Success") {
-                        egui::Color32::from_rgb(100, 200, 100)
-                    } else {
-                        egui::Color32::from_rgb(150, 150, 150)
-                    },
-                    &self.status,
-                );
-            });
+            // Status section
+            egui::Grid::new("status_grid")
+                .num_columns(2)
+                .spacing([10.0, 0.0])
+                .show(ui, |ui| {
+                    ui.label("Status:");
+                    ui.colored_label(
+                        if self.status.starts_with("Error") {
+                            egui::Color32::from_rgb(220, 80, 80)
+                        } else if self.status.starts_with("Success") {
+                            egui::Color32::from_rgb(80, 180, 80)
+                        } else {
+                            egui::Color32::from_rgb(120, 120, 120)
+                        },
+                        &self.status,
+                    );
+                    ui.end_row();
+                });
 
-            ui.add_space(15.0);
+            ui.add_space(20.0);
         });
     }
 }
