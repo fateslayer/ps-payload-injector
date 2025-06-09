@@ -11,12 +11,13 @@ pub enum InjectionStatus {
     ConfigLoaded(String, String, String), // ip, port, file_path
 }
 
-pub struct App<F, G, H, I>
+pub struct App<F, G, H, I, J>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
     I: Fn(&str, &str, &str) + Send + 'static,
+    J: Fn(bool) + Send + 'static,
 {
     ip: String,
     port: String,
@@ -26,23 +27,27 @@ where
     save_config_fn: G,
     load_config_fn: H,
     auto_save_fn: I,
+    auto_save_preference_fn: J,
     receiver: Option<mpsc::Receiver<InjectionStatus>>,
-    values_changed: bool, // Track if values have changed since last save
+    values_changed: bool,    // Track if values have changed since last save
+    auto_save_enabled: bool, // Track if auto-save is enabled
 }
 
-impl<F, G, H, I> App<F, G, H, I>
+impl<F, G, H, I, J> App<F, G, H, I, J>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
     I: Fn(&str, &str, &str) + Send + 'static,
+    J: Fn(bool) + Send + 'static,
 {
     pub fn new(
         inject_fn: F,
         save_config_fn: G,
         load_config_fn: H,
         auto_save_fn: I,
-        startup_config: (String, String, String),
+        auto_save_preference_fn: J,
+        startup_config: (String, String, String, bool),
     ) -> Self {
         Self {
             ip: startup_config.0,
@@ -53,18 +58,21 @@ where
             save_config_fn,
             load_config_fn,
             auto_save_fn,
+            auto_save_preference_fn,
             receiver: None,
             values_changed: false,
+            auto_save_enabled: startup_config.3,
         }
     }
 }
 
-impl<F, G, H, I> eframe::App for App<F, G, H, I>
+impl<F, G, H, I, J> eframe::App for App<F, G, H, I, J>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
     I: Fn(&str, &str, &str) + Send + 'static,
+    J: Fn(bool) + Send + 'static,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for status updates from the async task
@@ -84,7 +92,9 @@ where
 
         // Auto-save config when values change
         if self.values_changed {
-            (self.auto_save_fn)(&self.ip, &self.port, &self.file_path);
+            if self.auto_save_enabled {
+                (self.auto_save_fn)(&self.ip, &self.port, &self.file_path);
+            }
             self.values_changed = false;
         }
 
@@ -208,6 +218,18 @@ where
                     });
 
                     ui.end_row();
+
+                    // Auto-save checkbox row
+                    ui.horizontal(|ui| {
+                        let auto_save_response =
+                            ui.checkbox(&mut self.auto_save_enabled, "Auto Save");
+                        if auto_save_response.changed() {
+                            // Always save the auto-save preference itself
+                            (self.auto_save_preference_fn)(self.auto_save_enabled);
+                        }
+                    });
+
+                    ui.end_row();
                 });
 
             ui.add_space(10.0);
@@ -230,17 +252,20 @@ where
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        // Auto-save config on app exit
-        (self.auto_save_fn)(&self.ip, &self.port, &self.file_path);
+        // Auto-save config on app exit (only if auto-save is enabled and config file exists)
+        if self.auto_save_enabled {
+            (self.auto_save_fn)(&self.ip, &self.port, &self.file_path);
+        }
     }
 }
 
-impl<F, G, H, I> App<F, G, H, I>
+impl<F, G, H, I, J> App<F, G, H, I, J>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
     I: Fn(&str, &str, &str) + Send + 'static,
+    J: Fn(bool) + Send + 'static,
 {
     fn is_input_valid(&self) -> bool {
         // Check if IP address is not empty and not just whitespace
@@ -383,10 +408,12 @@ mod tests {
             mock_save_config_fn,
             mock_load_config_fn,
             |_, _, _| {},
+            |_| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
                 "/test/path".to_string(),
+                true,
             ),
         );
 
@@ -424,10 +451,12 @@ mod tests {
             mock_save_config_fn,
             mock_load_config_fn,
             |_, _, _| {},
+            |_| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
                 "/test/path".to_string(),
+                true,
             ),
         );
 
@@ -468,10 +497,12 @@ mod tests {
             mock_save_config_fn,
             mock_load_config_fn,
             |_, _, _| {},
+            |_| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
                 "/test/path".to_string(),
+                true,
             ),
         );
 
@@ -504,10 +535,12 @@ mod tests {
             mock_save_config_fn,
             mock_load_config_fn,
             |_, _, _| {},
+            |_| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
                 "/test/path".to_string(),
+                true,
             ),
         );
         let mut test_app = app;
@@ -551,10 +584,12 @@ mod tests {
             mock_save_config_fn,
             mock_load_config_fn,
             |_, _, _| {},
+            |_| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
-                "/test/path".to_string(),
+                "".to_string(), // Start with empty file path
+                true,
             ),
         );
 
@@ -611,10 +646,12 @@ mod tests {
             mock_save_config_fn,
             mock_load_config_fn,
             |_, _, _| {},
+            |_| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
                 "/test/path".to_string(),
+                true,
             ),
         );
 
@@ -646,10 +683,12 @@ mod tests {
             mock_save_config_fn,
             mock_load_config_fn,
             |_, _, _| {},
+            |_| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
                 "/test/path".to_string(),
+                true,
             ),
         );
 

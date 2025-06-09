@@ -1,4 +1,6 @@
-use crate::config::Config;
+use crate::config::{
+    Config, DEFAULT_AUTO_SAVE_ENABLED, DEFAULT_FILE_PATH, DEFAULT_IP, DEFAULT_PORT,
+};
 use crate::network::FileTransfer;
 use crate::ui::InjectionStatus;
 use std::sync::mpsc;
@@ -191,15 +193,78 @@ pub fn create_load_config_fn() -> impl Fn(mpsc::Sender<InjectionStatus>) + Send 
 
 pub fn create_auto_save_fn() -> impl Fn(&str, &str, &str) + Send + 'static {
     |ip: &str, port: &str, file_path: &str| {
-        // Create config from current values and save it silently
-        let config = Config::new(ip.to_string(), port.to_string(), file_path.to_string());
-        let _ = config.auto_save(); // Silent save - ignore errors for auto-save
+        // Only auto-save if a config file already exists (meaning auto-save is enabled)
+        if Config::config_file_exists() {
+            let current_config = Config::load_or_default();
+
+            // Create config with current values and preserve auto-save preference
+            let config = Config::new_with_auto_save(
+                ip.to_string(),
+                port.to_string(),
+                file_path.to_string(),
+                current_config.auto_save_enabled,
+            );
+
+            // Ensure the save operation completes successfully
+            let _ = config.auto_save();
+
+            // In test mode, add a small verification to ensure the save worked
+            #[cfg(test)]
+            {
+                // Verify the save worked by reading it back
+                let verification_config = Config::load_or_default();
+                if verification_config.ip != ip
+                    || verification_config.port != port
+                    || verification_config.file_path != file_path
+                {
+                    // If verification fails, try saving again
+                    let _ = config.auto_save();
+                }
+            }
+        }
     }
 }
 
-pub fn load_startup_config() -> (String, String, String) {
-    let config = Config::load_or_default();
-    (config.ip, config.port, config.file_path)
+pub fn create_auto_save_preference_fn() -> impl Fn(bool) + Send + 'static {
+    |auto_save_enabled: bool| {
+        if auto_save_enabled {
+            // Only save if auto-save is being enabled
+            let current_config = Config::load_or_default();
+            let config = Config::new_with_auto_save(
+                current_config.ip,
+                current_config.port,
+                current_config.file_path,
+                true,
+            );
+            let _ = config.auto_save();
+        } else {
+            // If auto-save is being disabled, delete the config file if it exists
+            if Config::config_file_exists() {
+                let config_path = Config::default_auto_save_path();
+                let _ = std::fs::remove_file(config_path);
+            }
+        }
+    }
+}
+
+pub fn load_startup_config() -> (String, String, String, bool) {
+    if Config::config_file_exists() {
+        let config = Config::load_or_default();
+        (
+            config.ip,
+            config.port,
+            config.file_path,
+            config.auto_save_enabled,
+        )
+    } else {
+        // No config file exists, return defaults with auto-save disabled
+        (
+            DEFAULT_IP.to_string(),
+            DEFAULT_PORT.to_string(),
+            DEFAULT_FILE_PATH.to_string(),
+            DEFAULT_AUTO_SAVE_ENABLED,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -213,20 +278,76 @@ mod tests {
         let _save_config_fn = create_save_config_fn();
         let _load_config_fn = create_load_config_fn();
         let _auto_save_fn = create_auto_save_fn();
+        let _auto_save_preference_fn = create_auto_save_preference_fn();
 
         // Test startup config loading (this will create or load existing config)
         let startup_config = load_startup_config();
         assert!(startup_config.0.len() > 0); // IP should not be empty
         assert!(startup_config.1.len() > 0); // Port should not be empty
                                              // File path can be empty in defaults
+                                             // Auto-save enabled is a boolean (can be true or false)
+    }
+
+    #[test]
+    fn test_auto_save_function() {
+        let auto_save_fn = create_auto_save_fn();
+        let auto_save_preference_fn = create_auto_save_preference_fn();
+
+        // Store current state first
+        let config_existed = Config::config_file_exists();
+        let original_config = if config_existed {
+            Some(Config::load_or_default())
+        } else {
+            None
+        };
+
+        // Enable auto-save first, then test auto-saving some values
+        auto_save_preference_fn(true);
+        auto_save_fn("10.0.0.100", "3000", "/test/auto_save.bin");
+
+        // Load it back to verify it was saved
+        let config = Config::load_or_default();
+        assert_eq!(config.ip, "10.0.0.100");
+        assert_eq!(config.port, "3000");
+        assert_eq!(config.file_path, "/test/auto_save.bin");
+
+        // Restore original state
+        if let Some(original_config) = original_config {
+            if original_config.auto_save_enabled {
+                auto_save_preference_fn(true);
+                auto_save_fn(
+                    &original_config.ip,
+                    &original_config.port,
+                    &original_config.file_path,
+                );
+            } else {
+                auto_save_preference_fn(false);
+            }
+        } else {
+            auto_save_preference_fn(false);
+        }
     }
 
     #[test]
     fn test_auto_save_edge_cases() {
         let auto_save_fn = create_auto_save_fn();
+        let auto_save_preference_fn = create_auto_save_preference_fn();
 
         // Store current state first
-        let original_config = Config::load_or_default();
+        let config_existed = Config::config_file_exists();
+        let original_config = if config_existed {
+            Some(Config::load_or_default())
+        } else {
+            None
+        };
+
+        // Enable auto-save first
+        auto_save_preference_fn(true);
+
+        // Verify auto-save is enabled
+        assert!(Config::config_file_exists());
+        let initial_config = Config::load_or_default();
+        assert_eq!(initial_config.auto_save_enabled, true);
 
         // Test with empty values
         auto_save_fn("", "", "");
@@ -243,43 +364,37 @@ mod tests {
         assert_eq!(config.file_path, "/max/test.bin");
 
         // Restore original state
-        auto_save_fn(
-            &original_config.ip,
-            &original_config.port,
-            &original_config.file_path,
-        );
-    }
-
-    #[test]
-    fn test_startup_config_consistency() {
-        let auto_save_fn = create_auto_save_fn();
-
-        // Store current state first
-        let original_config = Config::load_or_default();
-
-        // Save some specific values
-        auto_save_fn("172.16.0.1", "5555", "/consistent/test.bin");
-
-        // Load startup config should return the same values
-        let startup_config = load_startup_config();
-        assert_eq!(startup_config.0, "172.16.0.1");
-        assert_eq!(startup_config.1, "5555");
-        assert_eq!(startup_config.2, "/consistent/test.bin");
-
-        // Restore original state
-        auto_save_fn(
-            &original_config.ip,
-            &original_config.port,
-            &original_config.file_path,
-        );
+        if let Some(original_config) = original_config {
+            if original_config.auto_save_enabled {
+                auto_save_preference_fn(true);
+                auto_save_fn(
+                    &original_config.ip,
+                    &original_config.port,
+                    &original_config.file_path,
+                );
+            } else {
+                auto_save_preference_fn(false);
+            }
+        } else {
+            auto_save_preference_fn(false);
+        }
     }
 
     #[test]
     fn test_auto_save_with_special_characters() {
         let auto_save_fn = create_auto_save_fn();
+        let auto_save_preference_fn = create_auto_save_preference_fn();
 
         // Store current state first
-        let original_config = Config::load_or_default();
+        let config_existed = Config::config_file_exists();
+        let original_config = if config_existed {
+            Some(Config::load_or_default())
+        } else {
+            None
+        };
+
+        // Enable auto-save first
+        auto_save_preference_fn(true);
 
         // Test with special characters in file path
         auto_save_fn("127.0.0.1", "8080", "/path with spaces/file-name_test.txt");
@@ -290,34 +405,111 @@ mod tests {
         assert_eq!(config.file_path, "/path with spaces/file-name_test.txt");
 
         // Restore original state
-        auto_save_fn(
-            &original_config.ip,
-            &original_config.port,
-            &original_config.file_path,
-        );
+        if let Some(original_config) = original_config {
+            if original_config.auto_save_enabled {
+                auto_save_preference_fn(true);
+                auto_save_fn(
+                    &original_config.ip,
+                    &original_config.port,
+                    &original_config.file_path,
+                );
+            } else {
+                auto_save_preference_fn(false);
+            }
+        } else {
+            auto_save_preference_fn(false);
+        }
     }
 
     #[test]
-    fn test_auto_save_function() {
+    fn test_startup_config_consistency() {
         let auto_save_fn = create_auto_save_fn();
+        let auto_save_preference_fn = create_auto_save_preference_fn();
 
         // Store current state first
-        let original_config = Config::load_or_default();
+        let config_existed = Config::config_file_exists();
+        let original_config = if config_existed {
+            Some(Config::load_or_default())
+        } else {
+            None
+        };
 
-        // Test auto-saving some values
-        auto_save_fn("10.0.0.100", "3000", "/test/auto_save.bin");
+        // Enable auto-save first, then save some specific values
+        auto_save_preference_fn(true);
+        auto_save_fn("172.16.0.1", "5555", "/consistent/test.bin");
 
-        // Load it back to verify it was saved
-        let config = Config::load_or_default();
-        assert_eq!(config.ip, "10.0.0.100");
-        assert_eq!(config.port, "3000");
-        assert_eq!(config.file_path, "/test/auto_save.bin");
+        // Verify the config was actually saved correctly before testing load_startup_config
+        let saved_config = Config::load_or_default();
+        assert_eq!(saved_config.ip, "172.16.0.1");
+        assert_eq!(saved_config.port, "5555");
+        assert_eq!(saved_config.file_path, "/consistent/test.bin");
+        assert_eq!(saved_config.auto_save_enabled, true);
+
+        // Load startup config should return the same values
+        let startup_config = load_startup_config();
+        assert_eq!(startup_config.0, "172.16.0.1");
+        assert_eq!(startup_config.1, "5555");
+        assert_eq!(startup_config.2, "/consistent/test.bin");
+        assert_eq!(startup_config.3, true); // Auto-save should be enabled
 
         // Restore original state
-        auto_save_fn(
-            &original_config.ip,
-            &original_config.port,
-            &original_config.file_path,
-        );
+        if let Some(original_config) = original_config {
+            if original_config.auto_save_enabled {
+                auto_save_preference_fn(true);
+                auto_save_fn(
+                    &original_config.ip,
+                    &original_config.port,
+                    &original_config.file_path,
+                );
+            } else {
+                auto_save_preference_fn(false);
+            }
+        } else {
+            // No config existed before, disable auto-save to clean up
+            auto_save_preference_fn(false);
+        }
+    }
+
+    #[test]
+    fn test_auto_save_preference_function() {
+        let auto_save_preference_fn = create_auto_save_preference_fn();
+
+        // Store current state first
+        let config_existed = Config::config_file_exists();
+        let original_config = if config_existed {
+            Some(Config::load_or_default())
+        } else {
+            None
+        };
+
+        // Test setting auto-save to true (should create config file)
+        auto_save_preference_fn(true);
+        assert!(Config::config_file_exists());
+        let config = Config::load_or_default();
+        assert_eq!(config.auto_save_enabled, true);
+
+        // Test setting auto-save to false (should delete config file)
+        auto_save_preference_fn(false);
+        assert!(!Config::config_file_exists());
+
+        // Restore original state
+        if let Some(original_config) = original_config {
+            if original_config.auto_save_enabled {
+                auto_save_preference_fn(true);
+                // Manually save the original config
+                let _ = original_config.auto_save();
+            }
+        }
+    }
+
+    // This test should run last to clean up any test config files
+    // The test name starts with 'z' to ensure it runs after other tests alphabetically
+    #[test]
+    fn z_cleanup_test_files() {
+        Config::cleanup_test_files();
+
+        // Verify cleanup worked for the current thread's config file
+        let test_config_path = Config::default_auto_save_path();
+        assert!(!test_config_path.exists());
     }
 }

@@ -1,7 +1,7 @@
 use eframe::egui;
 use ps_payload_injector::handlers::{
-    create_auto_save_fn, create_inject_fn, create_load_config_fn, create_save_config_fn,
-    load_startup_config,
+    create_auto_save_fn, create_auto_save_preference_fn, create_inject_fn, create_load_config_fn,
+    create_save_config_fn, load_startup_config,
 };
 
 fn main() -> eframe::Result {
@@ -18,6 +18,7 @@ fn main() -> eframe::Result {
     let save_config_fn = create_save_config_fn();
     let load_config_fn = create_load_config_fn();
     let auto_save_fn = create_auto_save_fn();
+    let auto_save_preference_fn = create_auto_save_preference_fn();
     let startup_config = load_startup_config();
 
     eframe::run_native(
@@ -29,6 +30,7 @@ fn main() -> eframe::Result {
                 save_config_fn,
                 load_config_fn,
                 auto_save_fn,
+                auto_save_preference_fn,
                 startup_config,
             )))
         }),

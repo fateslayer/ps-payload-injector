@@ -1,4 +1,4 @@
-use ps_payload_injector::config::Config;
+use ps_payload_injector::config::{Config, DEFAULT_IP, DEFAULT_PORT};
 use ps_payload_injector::handlers::{
     create_inject_fn, create_load_config_fn, create_save_config_fn,
 };
@@ -96,7 +96,8 @@ fn test_config_validation_scenarios() {
         r#"{
         "ip": "192.168.1.100",
         "port": "8080",
-        "file_path": "/path/to/payload.bin"
+        "file_path": "/path/to/payload.bin",
+        "auto_save_enabled": false
     }"#,
     )
     .expect("Failed to write config");
@@ -275,4 +276,24 @@ fn test_edge_case_configs() {
         Config::load_from_file(temp_file3.path()).expect("Failed to load unicode config");
 
     assert_eq!(loaded_unicode.file_path, "/path/файл.txt");
+}
+
+#[test]
+fn test_edge_case_with_multiple_transfers() {
+    // Test edge case with multiple transfers (one should be our default)
+    let transfers = vec![
+        FileTransfer::new(
+            "10.0.0.1".to_string(),
+            "3000".to_string(),
+            "/test/file1.bin".to_string(),
+        ),
+        FileTransfer::new(
+            DEFAULT_IP.to_string(),
+            DEFAULT_PORT.to_string(),
+            "/test/file2.bin".to_string(),
+        ),
+    ];
+
+    assert_eq!(transfers[1].ip, DEFAULT_IP);
+    assert_eq!(transfers[1].port, DEFAULT_PORT);
 }
