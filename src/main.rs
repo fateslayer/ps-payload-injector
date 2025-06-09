@@ -41,53 +41,18 @@ impl eframe::App for App {
         egui::CentralPanel::default().show(ctx, |ui| {
             ui.add_space(20.0);
 
-            // Main content layout
             ui.vertical(|ui| {
-                // IP Address row
-                ui.horizontal(|ui| {
-                    ui.add_sized([80.0, 20.0], egui::Label::new("IP Address:"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.ip)
-                            .desired_width(ui.available_width() - 20.0),
-                    );
-                });
-
+                Self::add_text_input(ui, "IP Address:", &mut self.ip);
                 ui.add_space(15.0);
-
-                // Port row
-                ui.horizontal(|ui| {
-                    ui.add_sized([80.0, 20.0], egui::Label::new("Port:"));
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.port)
-                            .desired_width(ui.available_width() - 20.0),
-                    );
-                });
+                Self::add_text_input(ui, "Port:", &mut self.port);
                 ui.add_space(15.0);
-
-                // File Path row
-                ui.horizontal(|ui| {
-                    ui.add_sized([80.0, 20.0], egui::Label::new("File Path:"));
-                    let available_width = ui.available_width() - 100.0; // Account for Browse button, spacing, and padding
-                    ui.add(
-                        egui::TextEdit::singleline(&mut self.file_path)
-                            .desired_width(available_width),
-                    );
-
-                    ui.add_space(10.0);
-
-                    if ui.button("Browse...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().pick_file() {
-                            self.file_path = path.display().to_string();
-                        }
-                    }
-                });
+                self.add_file_input(ui);
             });
 
             ui.add_space(20.0);
 
-            // Action buttons
             ui.horizontal(|ui| {
-                ui.add_space(90.0); // Align with the input fields
+                ui.add_space(90.0);
                 if ui
                     .add_sized([100.0, 30.0], egui::Button::new("Inject Payload"))
                     .clicked()
@@ -100,20 +65,11 @@ impl eframe::App for App {
             ui.separator();
             ui.add_space(10.0);
 
-            // Status section
             ui.horizontal(|ui| {
                 ui.add_sized([80.0, 20.0], egui::Label::new("Status:"));
                 ui.add(
-                    egui::Label::new(egui::RichText::new(&self.status).color(
-                        if self.status.starts_with("Error") {
-                            egui::Color32::from_rgb(220, 80, 80)
-                        } else if self.status.starts_with("Success") {
-                            egui::Color32::from_rgb(80, 180, 80)
-                        } else {
-                            egui::Color32::from_rgb(120, 120, 120)
-                        },
-                    ))
-                    .wrap(),
+                    egui::Label::new(egui::RichText::new(&self.status).color(self.status_color()))
+                        .wrap(),
                 );
             });
 
@@ -123,6 +79,37 @@ impl eframe::App for App {
 }
 
 impl App {
+    fn add_text_input(ui: &mut egui::Ui, label: &str, text: &mut String) {
+        ui.horizontal(|ui| {
+            ui.add_sized([80.0, 20.0], egui::Label::new(label));
+            ui.add(egui::TextEdit::singleline(text).desired_width(ui.available_width() - 20.0));
+        });
+    }
+
+    fn add_file_input(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.add_sized([80.0, 20.0], egui::Label::new("File Path:"));
+            let available_width = ui.available_width() - 100.0;
+            ui.add(egui::TextEdit::singleline(&mut self.file_path).desired_width(available_width));
+            ui.add_space(10.0);
+            if ui.button("Browse...").clicked() {
+                if let Some(path) = rfd::FileDialog::new().pick_file() {
+                    self.file_path = path.display().to_string();
+                }
+            }
+        });
+    }
+
+    fn status_color(&self) -> egui::Color32 {
+        if self.status.starts_with("Error") {
+            egui::Color32::from_rgb(220, 80, 80)
+        } else if self.status.starts_with("Success") {
+            egui::Color32::from_rgb(80, 180, 80)
+        } else {
+            egui::Color32::from_rgb(120, 120, 120)
+        }
+    }
+
     fn inject_payload(&mut self) {
         self.status = "Injecting payload...".to_string();
 
