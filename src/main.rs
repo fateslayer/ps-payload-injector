@@ -13,7 +13,7 @@ fn main() -> eframe::Result {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([400.0, 300.0])
+            .with_inner_size([483.0, 300.0])
             .with_resizable(false),
         ..Default::default()
     };
@@ -137,9 +137,77 @@ fn main() -> eframe::Result {
             });
         };
 
+    let load_config_fn = |sender: mpsc::Sender<InjectionStatus>| {
+        // Spawn the load config task in a separate thread
+        std::thread::spawn(move || {
+            // Send status update: Preparing to load
+            let _ = sender.send(InjectionStatus::InProgress(
+                "Preparing to load config...".to_string(),
+            ));
+
+            // Create file dialog for loading
+            let mut dialog = rfd::FileDialog::new().add_filter("JSON files", &["json"]);
+
+            // Set current directory as default
+            if let Ok(current_dir) = std::env::current_dir() {
+                dialog = dialog.set_directory(&current_dir);
+            }
+
+            if let Some(path) = dialog.pick_file() {
+                let _ = sender.send(InjectionStatus::InProgress(
+                    "Loading config file...".to_string(),
+                ));
+
+                match Config::load_from_file(&path) {
+                    Ok(config) => {
+                        // Validate the loaded config
+                        if config.ip.trim().is_empty() {
+                            let _ = sender.send(InjectionStatus::Error(
+                                "Invalid config: IP address is empty".to_string(),
+                            ));
+                            return;
+                        }
+
+                        if config.port.parse::<u16>().is_err() {
+                            let _ = sender.send(InjectionStatus::Error(format!(
+                                "Invalid config: Invalid port number '{}'",
+                                config.port
+                            )));
+                            return;
+                        }
+
+                        // Note: We don't validate file_path existence here as user might want to load config with non-existent files
+
+                        let _ = sender.send(InjectionStatus::ConfigLoaded(
+                            config.ip,
+                            config.port,
+                            config.file_path,
+                        ));
+                    }
+                    Err(e) => {
+                        let _ = sender.send(InjectionStatus::Error(format!(
+                            "Failed to load config: {}",
+                            e
+                        )));
+                    }
+                }
+            } else {
+                let _ = sender.send(InjectionStatus::InProgress(
+                    "Config loading cancelled".to_string(),
+                ));
+            }
+        });
+    };
+
     eframe::run_native(
         app_name,
         options,
-        Box::new(|_cc| Ok(Box::new(ui::App::new(inject_fn, save_config_fn)))),
+        Box::new(|_cc| {
+            Ok(Box::new(ui::App::new(
+                inject_fn,
+                save_config_fn,
+                load_config_fn,
+            )))
+        }),
     )
 }

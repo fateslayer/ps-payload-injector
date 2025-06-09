@@ -8,12 +8,14 @@ pub enum InjectionStatus {
     InProgress(String),
     Success(usize),
     Error(String),
+    ConfigLoaded(String, String, String), // ip, port, file_path
 }
 
-pub struct App<F, G>
+pub struct App<F, G, H>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
+    H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     ip: String,
     port: String,
@@ -21,15 +23,17 @@ where
     status: InjectionStatus,
     inject_fn: F,
     save_config_fn: G,
+    load_config_fn: H,
     receiver: Option<mpsc::Receiver<InjectionStatus>>,
 }
 
-impl<F, G> App<F, G>
+impl<F, G, H> App<F, G, H>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
+    H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
-    pub fn new(inject_fn: F, save_config_fn: G) -> Self {
+    pub fn new(inject_fn: F, save_config_fn: G, load_config_fn: H) -> Self {
         Self {
             ip: "192.168.1.2".to_owned(),
             port: "9025".to_owned(),
@@ -37,20 +41,28 @@ where
             status: InjectionStatus::Idle,
             inject_fn,
             save_config_fn,
+            load_config_fn,
             receiver: None,
         }
     }
 }
 
-impl<F, G> eframe::App for App<F, G>
+impl<F, G, H> eframe::App for App<F, G, H>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
+    H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for status updates from the async task
         if let Some(receiver) = &self.receiver {
             if let Ok(new_status) = receiver.try_recv() {
+                // Handle config loading to populate fields
+                if let InjectionStatus::ConfigLoaded(ip, port, file_path) = &new_status {
+                    self.ip = ip.clone();
+                    self.port = port.clone();
+                    self.file_path = file_path.clone();
+                }
                 self.status = new_status;
                 ctx.request_repaint(); // Request UI update
             }
@@ -140,10 +152,7 @@ where
                         let inject_button = ui.add_enabled(
                             self.is_input_valid()
                                 && !matches!(self.status, InjectionStatus::InProgress(_)),
-                            egui::Button::new(match &self.status {
-                                InjectionStatus::InProgress(_) => "Injecting...",
-                                _ => "Inject Payload",
-                            }),
+                            egui::Button::new("Inject Payload"),
                         );
 
                         if inject_button.clicked() {
@@ -157,6 +166,14 @@ where
 
                         if save_config_button.clicked() {
                             self.save_config();
+                        }
+
+                        ui.add_space(5.0);
+
+                        let load_config_button = ui.button("Load Config");
+
+                        if load_config_button.clicked() {
+                            self.load_config();
                         }
                     });
 
@@ -183,10 +200,11 @@ where
     }
 }
 
-impl<F, G> App<F, G>
+impl<F, G, H> App<F, G, H>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
+    H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     fn is_input_valid(&self) -> bool {
         // Check if IP address is not empty and not just whitespace
@@ -213,6 +231,7 @@ where
             InjectionStatus::InProgress(msg) => msg.clone(),
             InjectionStatus::Success(bytes) => format!("Success! Sent {} bytes", bytes),
             InjectionStatus::Error(msg) => format!("Error: {}", msg),
+            InjectionStatus::ConfigLoaded(_, _, _) => "Config loaded successfully".to_string(),
         }
     }
 
@@ -222,6 +241,7 @@ where
             InjectionStatus::Success(_) => egui::Color32::from_rgb(80, 180, 80),
             InjectionStatus::InProgress(_) => egui::Color32::from_rgb(255, 165, 0), // Orange
             InjectionStatus::Idle => egui::Color32::from_rgb(120, 120, 120),
+            InjectionStatus::ConfigLoaded(_, _, _) => egui::Color32::from_rgb(80, 180, 80), // Green like success
         }
     }
 
@@ -279,5 +299,14 @@ where
 
         // Call the save config function with the sender
         (self.save_config_fn)(&ip, &port, &file_path, sender);
+    }
+
+    fn load_config(&mut self) {
+        // Create a channel for communication
+        let (sender, receiver) = mpsc::channel();
+        self.receiver = Some(receiver);
+
+        // Call the load config function with the sender
+        (self.load_config_fn)(sender);
     }
 }
