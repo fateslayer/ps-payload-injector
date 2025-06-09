@@ -103,23 +103,17 @@ impl eframe::App for App {
             // Status section
             ui.horizontal(|ui| {
                 ui.add_sized([80.0, 20.0], egui::Label::new("Status:"));
-                ui.allocate_ui_with_layout(
-                    [ui.available_width() - 20.0, ui.available_height()].into(),
-                    egui::Layout::left_to_right(egui::Align::TOP),
-                    |ui| {
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(&self.status).color(
-                                if self.status.starts_with("Error") {
-                                    egui::Color32::from_rgb(220, 80, 80)
-                                } else if self.status.starts_with("Success") {
-                                    egui::Color32::from_rgb(80, 180, 80)
-                                } else {
-                                    egui::Color32::from_rgb(120, 120, 120)
-                                },
-                            ))
-                            .wrap(),
-                        );
-                    },
+                ui.add(
+                    egui::Label::new(egui::RichText::new(&self.status).color(
+                        if self.status.starts_with("Error") {
+                            egui::Color32::from_rgb(220, 80, 80)
+                        } else if self.status.starts_with("Success") {
+                            egui::Color32::from_rgb(80, 180, 80)
+                        } else {
+                            egui::Color32::from_rgb(120, 120, 120)
+                        },
+                    ))
+                    .wrap(),
                 );
             });
 
