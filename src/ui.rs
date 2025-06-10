@@ -219,15 +219,15 @@ where
 
                     ui.end_row();
 
-                    // Auto-save checkbox row
-                    ui.horizontal(|ui| {
-                        let auto_save_response =
-                            ui.checkbox(&mut self.auto_save_enabled, "Auto Save");
-                        if auto_save_response.changed() {
-                            // Always save the auto-save preference itself
-                            (self.auto_save_preference_fn)(self.auto_save_enabled);
-                        }
-                    });
+                    ui.add_sized([80.0, 20.0], egui::Label::new("")); // Empty first column
+
+                    let auto_save_response =
+                        ui.checkbox(&mut self.auto_save_enabled, "Autosave Config");
+
+                    if auto_save_response.changed() {
+                        // Always save the auto-save preference itself
+                        (self.auto_save_preference_fn)(self.auto_save_enabled);
+                    }
 
                     ui.end_row();
                 });
