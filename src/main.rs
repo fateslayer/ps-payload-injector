@@ -1,3 +1,5 @@
+#![cfg_attr(windows, windows_subsystem = "windows")]
+
 use eframe::egui;
 use ps_payload_injector::handlers::{
     create_auto_save_fn, create_auto_save_preference_fn, create_inject_fn, create_load_config_fn,
