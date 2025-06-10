@@ -264,7 +264,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 🙏 Acknowledgments
 
-- Built with [egui](https://github.com/emilkagaudi/egui) - Immediate mode GUI framework
+- Built with [egui](https://github.com/emilk/egui) - Immediate mode GUI framework
 - Cross-platform file dialogs by [rfd](https://github.com/PolyMeilex/rfd)
 - Async runtime provided by [tokio](https://github.com/tokio-rs/tokio)
 
