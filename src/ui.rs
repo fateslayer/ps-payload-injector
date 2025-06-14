@@ -90,6 +90,11 @@ where
             }
         }
 
+        // Request continuous updates if we're in an in-progress state
+        if matches!(self.status, InjectionStatus::InProgress(_)) {
+            ctx.request_repaint();
+        }
+
         // Auto-save config when values change
         if self.values_changed {
             if self.auto_save_enabled {

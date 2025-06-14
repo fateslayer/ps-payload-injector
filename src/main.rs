@@ -13,6 +13,9 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([483.0, 300.0])
             .with_resizable(false),
+        renderer: eframe::Renderer::Glow,
+        vsync: true,
+        hardware_acceleration: eframe::HardwareAcceleration::Preferred,
         ..Default::default()
     };
 
