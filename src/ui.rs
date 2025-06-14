@@ -1,3 +1,4 @@
+use crate::config::{DEFAULT_FILE_PATH, DEFAULT_IP, DEFAULT_PORT};
 use eframe::egui;
 use std::path::Path;
 use std::sync::mpsc;
@@ -9,15 +10,17 @@ pub enum InjectionStatus {
     Success(usize),
     Error(String),
     ConfigLoaded(String, String, String), // ip, port, file_path
+    ConfigSaved(String),                  // message
 }
 
-pub struct App<F, G, H, I, J>
+pub struct App<F, G, H, I, J, K>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
     I: Fn(&str, &str, &str) + Send + 'static,
     J: Fn(bool) + Send + 'static,
+    K: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     ip: String,
     port: String,
@@ -28,18 +31,20 @@ where
     load_config_fn: H,
     auto_save_fn: I,
     auto_save_preference_fn: J,
+    reset_fn: K,
     receiver: Option<mpsc::Receiver<InjectionStatus>>,
     values_changed: bool,    // Track if values have changed since last save
     auto_save_enabled: bool, // Track if auto-save is enabled
 }
 
-impl<F, G, H, I, J> App<F, G, H, I, J>
+impl<F, G, H, I, J, K> App<F, G, H, I, J, K>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
     I: Fn(&str, &str, &str) + Send + 'static,
     J: Fn(bool) + Send + 'static,
+    K: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     pub fn new(
         inject_fn: F,
@@ -47,6 +52,7 @@ where
         load_config_fn: H,
         auto_save_fn: I,
         auto_save_preference_fn: J,
+        reset_fn: K,
         startup_config: (String, String, String, bool),
     ) -> Self {
         Self {
@@ -59,6 +65,7 @@ where
             load_config_fn,
             auto_save_fn,
             auto_save_preference_fn,
+            reset_fn,
             receiver: None,
             values_changed: false,
             auto_save_enabled: startup_config.3,
@@ -66,13 +73,14 @@ where
     }
 }
 
-impl<F, G, H, I, J> eframe::App for App<F, G, H, I, J>
+impl<F, G, H, I, J, K> eframe::App for App<F, G, H, I, J, K>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
     I: Fn(&str, &str, &str) + Send + 'static,
     J: Fn(bool) + Send + 'static,
+    K: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // Check for status updates from the async task
@@ -220,6 +228,14 @@ where
                         if load_config_button.clicked() {
                             self.load_config();
                         }
+
+                        ui.add_space(5.0);
+
+                        let reset_button = ui.button("Reset");
+
+                        if reset_button.clicked() {
+                            self.reset();
+                        }
                     });
 
                     ui.end_row();
@@ -264,13 +280,14 @@ where
     }
 }
 
-impl<F, G, H, I, J> App<F, G, H, I, J>
+impl<F, G, H, I, J, K> App<F, G, H, I, J, K>
 where
     F: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     G: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
     H: Fn(mpsc::Sender<InjectionStatus>) + Send + 'static,
     I: Fn(&str, &str, &str) + Send + 'static,
     J: Fn(bool) + Send + 'static,
+    K: Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static,
 {
     fn is_input_valid(&self) -> bool {
         // Check if IP address is not empty and not just whitespace
@@ -298,6 +315,7 @@ where
             InjectionStatus::Success(bytes) => format!("Success! Sent {} bytes", bytes),
             InjectionStatus::Error(msg) => format!("Error: {}", msg),
             InjectionStatus::ConfigLoaded(_, _, _) => "Config loaded successfully".to_string(),
+            InjectionStatus::ConfigSaved(msg) => msg.clone(),
         }
     }
 
@@ -308,6 +326,7 @@ where
             InjectionStatus::InProgress(_) => egui::Color32::from_rgb(255, 165, 0), // Orange
             InjectionStatus::Idle => egui::Color32::from_rgb(120, 120, 120),
             InjectionStatus::ConfigLoaded(_, _, _) => egui::Color32::from_rgb(80, 180, 80), // Green like success
+            InjectionStatus::ConfigSaved(_) => egui::Color32::from_rgb(80, 180, 80), // Green like success
         }
     }
 
@@ -375,12 +394,29 @@ where
         // Call the load config function with the sender
         (self.load_config_fn)(sender);
     }
+
+    fn reset(&mut self) {
+        // Set default values directly
+        self.ip = DEFAULT_IP.to_string();
+        self.port = DEFAULT_PORT.to_string();
+        self.file_path = DEFAULT_FILE_PATH.to_string();
+        self.values_changed = true;
+
+        // Create a channel for communication
+        let (sender, receiver) = mpsc::channel();
+        self.receiver = Some(receiver);
+
+        // Call the reset function with the sender
+        (self.reset_fn)(&self.ip, &self.port, &self.file_path, sender);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use crate::config::{DEFAULT_FILE_PATH, DEFAULT_IP, DEFAULT_PORT};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
     use tempfile::NamedTempFile;
 
     // Mock functions for testing
@@ -414,6 +450,7 @@ mod tests {
             mock_load_config_fn,
             |_, _, _| {},
             |_| {},
+            |_, _, _, _| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
@@ -457,6 +494,7 @@ mod tests {
             mock_load_config_fn,
             |_, _, _| {},
             |_| {},
+            |_, _, _, _| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
@@ -503,6 +541,7 @@ mod tests {
             mock_load_config_fn,
             |_, _, _| {},
             |_| {},
+            |_, _, _, _| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
@@ -541,6 +580,7 @@ mod tests {
             mock_load_config_fn,
             |_, _, _| {},
             |_| {},
+            |_, _, _, _| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
@@ -590,6 +630,7 @@ mod tests {
             mock_load_config_fn,
             |_, _, _| {},
             |_| {},
+            |_, _, _, _| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
@@ -652,6 +693,7 @@ mod tests {
             mock_load_config_fn,
             |_, _, _| {},
             |_| {},
+            |_, _, _, _| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
@@ -689,6 +731,7 @@ mod tests {
             mock_load_config_fn,
             |_, _, _| {},
             |_| {},
+            |_, _, _, _| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
@@ -737,6 +780,7 @@ mod tests {
             mock_load_config_fn,
             |_, _, _| {},
             |_| {},
+            |_, _, _, _| {},
             (
                 "192.168.1.1".to_string(),
                 "8080".to_string(),
@@ -779,6 +823,195 @@ mod tests {
         }
 
         // Verify the app is in Idle state
+        assert!(matches!(app.status, InjectionStatus::Idle));
+    }
+
+    #[test]
+    fn test_reset_with_auto_save_enabled() {
+        let auto_save_called = Arc::new(AtomicBool::new(false));
+        let auto_save_called_clone = auto_save_called.clone();
+        let mut app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            move |ip, port, file_path| {
+                auto_save_called_clone.store(true, Ordering::SeqCst);
+                assert_eq!(ip, DEFAULT_IP);
+                assert_eq!(port, DEFAULT_PORT);
+                assert_eq!(file_path, DEFAULT_FILE_PATH);
+            },
+            |_| {},
+            |_, _, _, _| {},
+            (
+                "custom.ip".to_string(),
+                "1234".to_string(),
+                "/custom/path".to_string(),
+                true, // Enable auto-save
+            ),
+        );
+
+        // Verify initial state
+        assert_eq!(app.ip, "custom.ip");
+        assert_eq!(app.port, "1234");
+        assert_eq!(app.file_path, "/custom/path");
+        assert!(app.auto_save_enabled);
+
+        // Simulate reset button click
+        app.ip = DEFAULT_IP.to_string();
+        app.port = DEFAULT_PORT.to_string();
+        app.file_path = DEFAULT_FILE_PATH.to_string();
+        app.status = InjectionStatus::Idle;
+        app.values_changed = true;
+
+        // Trigger auto-save
+        if app.auto_save_enabled {
+            (app.auto_save_fn)(&app.ip, &app.port, &app.file_path);
+        }
+
+        // Verify reset state
+        assert_eq!(app.ip, DEFAULT_IP);
+        assert_eq!(app.port, DEFAULT_PORT);
+        assert_eq!(app.file_path, DEFAULT_FILE_PATH);
+        assert!(matches!(app.status, InjectionStatus::Idle));
+        assert!(app.values_changed);
+        assert!(auto_save_called.load(Ordering::SeqCst)); // Verify auto-save was called
+    }
+
+    #[test]
+    fn test_reset_with_auto_save_disabled() {
+        let auto_save_called = Arc::new(AtomicBool::new(false));
+        let auto_save_called_clone = auto_save_called.clone();
+        let mut app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            move |_, _, _| {
+                auto_save_called_clone.store(true, Ordering::SeqCst);
+            },
+            |_| {},
+            |_, _, _, _| {},
+            (
+                "custom.ip".to_string(),
+                "1234".to_string(),
+                "/custom/path".to_string(),
+                false, // Disable auto-save
+            ),
+        );
+
+        // Verify initial state
+        assert_eq!(app.ip, "custom.ip");
+        assert_eq!(app.port, "1234");
+        assert_eq!(app.file_path, "/custom/path");
+        assert!(!app.auto_save_enabled);
+
+        // Simulate reset button click
+        app.ip = DEFAULT_IP.to_string();
+        app.port = DEFAULT_PORT.to_string();
+        app.file_path = DEFAULT_FILE_PATH.to_string();
+        app.status = InjectionStatus::Idle;
+        app.values_changed = true;
+
+        // Verify reset state
+        assert_eq!(app.ip, DEFAULT_IP);
+        assert_eq!(app.port, DEFAULT_PORT);
+        assert_eq!(app.file_path, DEFAULT_FILE_PATH);
+        assert!(matches!(app.status, InjectionStatus::Idle));
+        assert!(app.values_changed);
+        assert!(!auto_save_called.load(Ordering::SeqCst)); // Verify auto-save was not called
+    }
+
+    #[test]
+    fn test_reset_preserves_auto_save_preference() {
+        let mut app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            |_, _, _| {},
+            |_| {},
+            |_, _, _, _| {},
+            (
+                "custom.ip".to_string(),
+                "1234".to_string(),
+                "/custom/path".to_string(),
+                true, // Enable auto-save
+            ),
+        );
+
+        // Verify initial auto-save state
+        assert!(app.auto_save_enabled);
+
+        // Simulate reset button click
+        app.ip = DEFAULT_IP.to_string();
+        app.port = DEFAULT_PORT.to_string();
+        app.file_path = DEFAULT_FILE_PATH.to_string();
+        app.status = InjectionStatus::Idle;
+        app.values_changed = true;
+
+        // Verify auto-save preference is preserved
+        assert!(app.auto_save_enabled);
+    }
+
+    #[test]
+    fn test_reset_after_error_state() {
+        let mut app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            |_, _, _| {},
+            |_| {},
+            |_, _, _, _| {},
+            (
+                "custom.ip".to_string(),
+                "1234".to_string(),
+                "/custom/path".to_string(),
+                false,
+            ),
+        );
+
+        // Set error state
+        app.status = InjectionStatus::Error("Test error".to_string());
+        assert!(matches!(app.status, InjectionStatus::Error(_)));
+
+        // Simulate reset button click
+        app.ip = DEFAULT_IP.to_string();
+        app.port = DEFAULT_PORT.to_string();
+        app.file_path = DEFAULT_FILE_PATH.to_string();
+        app.status = InjectionStatus::Idle;
+        app.values_changed = true;
+
+        // Verify error state is cleared
+        assert!(matches!(app.status, InjectionStatus::Idle));
+    }
+
+    #[test]
+    fn test_reset_after_success_state() {
+        let mut app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            |_, _, _| {},
+            |_| {},
+            |_, _, _, _| {},
+            (
+                "custom.ip".to_string(),
+                "1234".to_string(),
+                "/custom/path".to_string(),
+                false,
+            ),
+        );
+
+        // Set success state
+        app.status = InjectionStatus::Success(100);
+        assert!(matches!(app.status, InjectionStatus::Success(_)));
+
+        // Simulate reset button click
+        app.ip = DEFAULT_IP.to_string();
+        app.port = DEFAULT_PORT.to_string();
+        app.file_path = DEFAULT_FILE_PATH.to_string();
+        app.status = InjectionStatus::Idle;
+        app.values_changed = true;
+
+        // Verify success state is cleared
         assert!(matches!(app.status, InjectionStatus::Idle));
     }
 }

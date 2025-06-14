@@ -182,6 +182,9 @@ fn test_status_enum_behavior() {
                 assert!(!port.is_empty());
                 assert!(!path.is_empty());
             }
+            InjectionStatus::ConfigSaved(msg) => {
+                assert!(!msg.is_empty());
+            }
         }
     }
 }

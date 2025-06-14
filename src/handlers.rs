@@ -98,20 +98,17 @@ pub fn create_save_config_fn(
             }
 
             if let Some(path) = dialog.save_file() {
-                let config = Config::new(ip, port, file_path);
-
+                let config = Config::new(ip.clone(), port.clone(), file_path.clone());
                 match config.save_to_file(&path) {
                     Ok(()) => {
                         let filename = path
                             .file_name()
                             .and_then(|name| name.to_str())
                             .unwrap_or("unknown");
-                        let _ = sender.send(InjectionStatus::InProgress(format!(
+                        let _ = sender.send(InjectionStatus::ConfigSaved(format!(
                             "Config saved to '{}'",
                             filename
                         )));
-                        // Reset status to Idle after successful save
-                        let _ = sender.send(InjectionStatus::Idle);
                     }
                     Err(e) => {
                         let _ = sender.send(InjectionStatus::Error(format!(
@@ -248,6 +245,13 @@ pub fn create_auto_save_preference_fn() -> impl Fn(bool) + Send + 'static {
                 let _ = std::fs::remove_file(config_path);
             }
         }
+    }
+}
+
+pub fn create_reset_fn() -> impl Fn(&str, &str, &str, mpsc::Sender<InjectionStatus>) + Send + 'static
+{
+    |_ip: &str, _port: &str, _file_path: &str, sender: mpsc::Sender<InjectionStatus>| {
+        let _ = sender.send(InjectionStatus::Idle);
     }
 }
 

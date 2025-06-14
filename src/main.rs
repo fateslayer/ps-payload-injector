@@ -3,7 +3,7 @@
 use eframe::egui;
 use ps_payload_injector::handlers::{
     create_auto_save_fn, create_auto_save_preference_fn, create_inject_fn, create_load_config_fn,
-    create_save_config_fn, load_startup_config,
+    create_reset_fn, create_save_config_fn, load_startup_config,
 };
 
 fn main() -> eframe::Result {
@@ -11,7 +11,7 @@ fn main() -> eframe::Result {
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
-            .with_inner_size([483.0, 300.0])
+            .with_inner_size([560.0, 300.0])
             .with_resizable(false),
         renderer: eframe::Renderer::Glow,
         vsync: true,
@@ -24,6 +24,7 @@ fn main() -> eframe::Result {
     let load_config_fn = create_load_config_fn();
     let auto_save_fn = create_auto_save_fn();
     let auto_save_preference_fn = create_auto_save_preference_fn();
+    let reset_fn = create_reset_fn();
     let startup_config = load_startup_config();
 
     eframe::run_native(
@@ -36,6 +37,7 @@ fn main() -> eframe::Result {
                 load_config_fn,
                 auto_save_fn,
                 auto_save_preference_fn,
+                reset_fn,
                 startup_config,
             )))
         }),
