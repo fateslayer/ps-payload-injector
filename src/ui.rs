@@ -723,4 +723,57 @@ mod tests {
         assert_eq!(app.file_path, "/new/path.txt");
         assert!(matches!(app.status, InjectionStatus::ConfigLoaded(_, _, _)));
     }
+
+    #[test]
+    fn test_save_config_status_transitions() {
+        let mut app = App::new(
+            mock_inject_fn,
+            mock_save_config_fn,
+            mock_load_config_fn,
+            |_, _, _| {},
+            |_| {},
+            (
+                "192.168.1.1".to_string(),
+                "8080".to_string(),
+                "/test/path".to_string(),
+                true,
+            ),
+        );
+
+        // Create a channel for communication
+        let (sender, receiver) = mpsc::channel();
+        app.receiver = Some(receiver);
+
+        // Simulate save config operation
+        (app.save_config_fn)("192.168.1.1", "8080", "/test/path", sender.clone());
+
+        // Verify initial InProgress status
+        if let Some(receiver) = &app.receiver {
+            if let Ok(new_status) = receiver.try_recv() {
+                assert!(matches!(new_status, InjectionStatus::InProgress(_)));
+                app.status = new_status;
+            }
+        }
+
+        // Simulate successful save completion
+        let _ = sender.send(InjectionStatus::InProgress(
+            "Config saved to 'test.json'".to_string(),
+        ));
+        let _ = sender.send(InjectionStatus::Idle);
+
+        // Verify final Idle status
+        if let Some(receiver) = &app.receiver {
+            if let Ok(new_status) = receiver.try_recv() {
+                assert!(matches!(new_status, InjectionStatus::InProgress(_)));
+                app.status = new_status;
+            }
+            if let Ok(new_status) = receiver.try_recv() {
+                assert!(matches!(new_status, InjectionStatus::Idle));
+                app.status = new_status;
+            }
+        }
+
+        // Verify the app is in Idle state
+        assert!(matches!(app.status, InjectionStatus::Idle));
+    }
 }

@@ -110,6 +110,8 @@ pub fn create_save_config_fn(
                             "Config saved to '{}'",
                             filename
                         )));
+                        // Reset status to Idle after successful save
+                        let _ = sender.send(InjectionStatus::Idle);
                     }
                     Err(e) => {
                         let _ = sender.send(InjectionStatus::Error(format!(
@@ -122,6 +124,8 @@ pub fn create_save_config_fn(
                 let _ = sender.send(InjectionStatus::InProgress(
                     "Config save cancelled".to_string(),
                 ));
+                // Reset status to Idle after cancellation
+                let _ = sender.send(InjectionStatus::Idle);
             }
         });
     }
